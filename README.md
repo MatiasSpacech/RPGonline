@@ -2,7 +2,7 @@
 
 MMORPG 3D de acción **inspirado en MU Online** (dark fantasy, grind satisfactorio, mejora de ítems +N, click-to-move) pero con nombres, arte y diseño propios. Online a escala pequeña: **8–64 jugadores concurrentes por servidor**, con arquitectura que puede crecer después.
 
-> Estado: **F1 completado** · game loop autoritativo a 20 Hz, snapshots a 10 Hz, login de dev, click-to-move e interpolación: dos clientes se ven moverse. Siguiente: **F2 — persistencia**.
+> Estado: **F2 completado** · cuentas Argon2id, personajes persistentes en PostgreSQL 16, lobby, token de sesión y guardado de posición. Siguiente: **F3 — combate**.
 
 ## Stack decidido
 
@@ -31,43 +31,48 @@ MMORPG 3D de acción **inspirado en MU Online** (dark fantasy, grind satisfactor
 
 ## Ruta rápida (resumen del roadmap)
 
-1. **F0** – Setup de herramientas y aprendizaje dirigido
-2. **F1** – "Walking simulator" online: conectar, ver a otros jugadores moverse
-3. **F2** – Cuentas y personajes persistentes (login + Postgres)
+1. **F0 ✅** – Setup de herramientas y aprendizaje dirigido
+2. **F1 ✅** – "Walking simulator" online: conectar, ver a otros jugadores moverse
+3. **F2 ✅** – Cuentas y personajes persistentes (login + Postgres)
 4. **F3** – Combate contra mobs, XP y niveles
 5. **F4** – Loot, inventario, equipamiento y mejora +N
 6. **F5** – Mapas múltiples, clases y skills
 7. **F6** – Chat, party, muerte, balance
 8. **F7** – Despliegue y playtest con amigos
 
-## Correr el juego (F1 — caminar juntos)
+## Correr el juego (F2 — cuentas y personajes)
 
 Requisitos: Go 1.27+ y Godot 4.7+ (instalados en `~/.local`; `~/.bashrc` ya agrega `~/.local/go/bin` y `~/.local/bin` al PATH — abrí una terminal nueva o `source ~/.bashrc`).
 
 ```bash
-# Terminal 1 — servidor autoritativo
+# Terminal 1 — base de datos (PostgreSQL 16 embebido, sin Docker ni sudo)
+make devdb
+#    primera vez: descarga binarios e inicializa en server/.data/postgres
+#    esperá el mensaje "Postgres listo: postgres://..."
+
+# Terminal 2 — servidor (aplica las migraciones solo)
 make server          # ws://127.0.0.1:8080/ws · healthz: :8080/healthz
 
-# Terminal 2 — dos clientes (dos ventanas; ambas usan "dev")
-godot --path client &
-godot --path client &
+# Terminal 3 — cliente Godot (una o dos ventanas)
+godot --path client
 ```
 
-Qué vas a ver:
+Desde la pantalla de login:
 
-- Una cápsula dorada (vos) y otra de color con su nombre flotante. El server reparte nombres únicos: el segundo `dev` pasa a `dev-2`.
-- **Click izquierdo en el suelo** → tu personaje camina hasta el marcador verde.
-- El otro jugador se mueve interpolado (buffer de ~100 ms sobre snapshots de 10 Hz).
-- HUD: tick del servidor, jugadores conectados y RTT.
-- Si cerrás el servidor, ambos clientes avisan y reintentan solos cada 3 s.
+- **Crear cuenta**: usuario (3-16) + contraseña (6+); el botón registra y entra directo.
+- Elegí **Guerrero/Mago/Arquera**, escribí el nombre y creá hasta **3 personajes**.
+- **Entrar al mundo** → click izquierdo para caminar.
+- Cerrá el cliente y volvé a entrar: el personaje aparece donde lo dejaste (guardado al desconectar y cada 60 s).
+
+Tests:
 
 ```bash
-# Tests del servidor: protocolo, mundo y un test de integración con dos
-# clientes WebSocket reales verificando que el movimiento se replica.
-cd server && go test ./...
+make test            # unitarios + integración en memoria (sin DB)
+make test-db         # incluye PostgreSQL real (con `make devdb` corriendo)
+make client-autotest # smoke test headless del cliente (con DB + server corriendo)
 ```
 
-Atajos: `make server`, `make client`, `make test`.
+Atajos: `make devdb`, `make server`, `make client`, `make test`, `make test-db`.
 
-> **Docker/Postgres**: se suman en F2 (cuentas y personajes persistentes).
+> **Docker** (opcional, para deploy): `docker compose -f deploy/docker-compose.yml up -d db` levanta un Postgres 16 equivalente. El entorno actual no lo tiene instalado, por eso `make devdb`.
 

@@ -45,13 +45,14 @@ El orden no es arbitrario: cada fase construye sobre la anterior y **cada una de
 
 ## F2 — Persistencia: cuentas y personajes (2–3 sem)
 
-- [ ] Postgres en Docker Compose; migración `0001` con esquema de [05-base-de-datos](05-base-de-datos.md).
-- [ ] Registro/login con Argon2id + token de sesión; lobby de personajes (crear hasta 3, elegir, borrar).
-- [ ] `welcome` con datos del personaje + `game_data` estático inicial.
-- [ ] Guardado: posición al logout y cada 60 s; carga al entrar.
-- [ ] Manejo de errores visible en cliente (mensajes de login).
+- [x] PostgreSQL 16 embebido para dev (`make devdb`, sin Docker ni sudo) + `deploy/docker-compose.yml` para deploy; migración `0001_init` con el esquema de [05-base-de-datos](05-base-de-datos.md) y runner embebido.
+- [x] Registro/login con **Argon2id** + token de sesión (`resume` al reconectar); lobby con crear (máx. 3), borrar y elegir personaje; stats iniciales por clase.
+- [x] Mitigaciones: concurrencia de hashes limitada (2) y verificación dummy para usuarios inexistentes (anti timing/enumeration).
+- [x] `welcome` con datos del personaje (el `game_data` estático completo llega en F5 con skills/ítems).
+- [x] Guardado asíncrono: cada 60 s si hay cambios, al desconectarse y al apagar el servidor; carga de posición al entrar. El game loop nunca espera a la BD.
+- [x] Errores de auth/lobby visibles en el cliente; pantalla de login/registro y lobby; cliente con **autotest headless**.
 
-**Criterio de aceptación**: creo "Kaen" (guerrero), camino, cierro el cliente, re-entro y estoy donde estaba. Un segundo personaje puede existir.
+**Criterio de aceptación**: ✅ verificado end-to-end contra Postgres real (`TestPersistenceAcrossReconnect`) y con el cliente Godot headless (reingreso en `x=5.00`, la posición guardada). Falta tu prueba visual interactiva.
 
 ## F3 — Combate y progresión (3–5 sem) ❤ corazón técnico
 

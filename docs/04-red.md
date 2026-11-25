@@ -29,13 +29,18 @@ Sobre JSON mínimo:
 
 ## 3. Catálogo de mensajes MVP
 
+> **Implementado hasta F2**: `register`, `login`, `resume`, `create_char`, `delete_char`, `select_char`, `move_req`, `ping` y sus respuestas. El resto del catálogo es el objetivo del MVP.
+
 ### C → S (acciones: el cliente *pide*)
 
 | t | d | Notas |
 |---|---|---|
-| `login` | { user, pass } | 1º mensaje obligatorio; respuesta `login_ok`/`login_err` |
-| `create_char` | { name, class } | validaciones: 3–16 chars, única |
-| `select_char` | { charId } | entra al mundo → `welcome` |
+| `register` | { user, pass } | crea cuenta y autentica (responde `login_ok`) |
+| `login` | { user, pass } | responde `login_ok` o `err` |
+| `resume` | { token } | reanuda sesión tras reconectar (token de `login_ok`) |
+| `create_char` | { name, class } | nombre 3–16 letras; máximo 3 por cuenta |
+| `delete_char` | { char_id } | borra un personaje propio |
+| `select_char` | { char_id } | entra al mundo → `welcome` |
 | `move_req` | { x, y, z } | punto destino del clic (ver §5) |
 | `attack` | { target } | inicia/detiene auto-ataque (0 = detener) |
 | `skill` | { skillId, target } | target opcional para heals/self |
@@ -47,15 +52,17 @@ Sobre JSON mínimo:
 | `chat` | { ch, msg, to? } | ch ∈ global, party, whisper |
 | `party_inv` / `party_accept` | { charId } | |
 | `portal` | { portalId } | cambio de mapa |
-| `heartbeat` | {} | cada 5 s (el server expulsa a los silenciosos: 15 s) |
+| `ping` | {} | cada 2 s; el server responde `pong` (timeout 20 s) |
 
 ### S → C (estado: el servidor *informa*)
 
 | t | d | Notas |
 |---|---|---|
-| `login_ok` / `login_err` | { chars: [...] } / { reason } | lista de personajes en login_ok |
-| `welcome` | { self, map, ents, game_data } | todo lo que el cliente necesita para entrar |
+| `login_ok` | { token, user, chars } | token para `resume` + lista de personajes |
+| `char_created` / `char_deleted` | { char } / { char_id } | actualizan el lobby |
+| `welcome` | { self, character, map, tick_rate, snapshot_rate } | datos para entrar al mundo |
 | `snapshot` | { tick, ents } | ver §4 |
+| `pong` | { server_time_ms } | respuesta al ping (RTT) |
 | `self_state` | { hp, mp, xp, level, gold, stats... } | cambia poco → evento barato |
 | `dmg` | { src, dst, amount, crit, kind } | para números flotantes/anim (visual only) |
 | `mob_dead` | { id, xp, drops } | feedback de kill |
@@ -66,7 +73,7 @@ Sobre JSON mínimo:
 | `party_state` | { members } | al unirse/salirse |
 | `levelup` | { charId, level } | visual fanfarria |
 | `teleport` | { map, x, y, z, ents } | al cruzar portal o morir |
-| `err` | { code, msg } | genérico; logueado server-side |
+| `err` | { code, msg } | errores de auth/lobby/mundo; logueado server-side |
 
 ## 4. Sincronización de entidades
 

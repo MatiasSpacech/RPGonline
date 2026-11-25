@@ -1,13 +1,17 @@
 class_name NetClient
 extends Node
-## Cliente WebSocket de F1: conecta, hace login con nombre fijo, envía
-## move_req y emite welcome/snapshot/pong. Reintenta solo si se cae el server.
+## Cliente WebSocket F2: autenticación, lobby de personajes, token de sesión
+## (resume), snapshots y reconexión automática.
 
 signal connected
 signal disconnected(reason: String)
+signal login_ok(data: Dictionary)
+signal char_created(data: Dictionary)
+signal char_deleted(char_id: int)
 signal welcome_received(data: Dictionary)
 signal snapshot_received(data: Dictionary)
 signal pong_received(rtt_ms: int)
+signal server_error(code: String, message: String)
 
 enum State { DISCONNECTED, CONNECTING, CONNECTED }
 
@@ -20,18 +24,32 @@ var _state := State.DISCONNECTED
 var _retry_left := 0.0
 var _ping_left := 0.0
 var _last_ping_msec := 0
-var _user := ""
+var _token := ""
+var _pending: Dictionary = {}
 
 
 func _ready() -> void:
 	_connect_to_server()
 
 
-## Guarda el nombre y, si ya hay conexión, manda el login.
-func login(user: String) -> void:
-	_user = user
-	if _state == State.CONNECTED:
-		_send_login()
+func request_login(user: String, password: String) -> void:
+	_queue_or_send({"t": "login", "d": {"user": user, "pass": password}})
+
+
+func request_register(user: String, password: String) -> void:
+	_queue_or_send({"t": "register", "d": {"user": user, "pass": password}})
+
+
+func create_character(character_name: String, class_id: String) -> void:
+	_send({"t": "create_char", "d": {"name": character_name, "class": class_id}})
+
+
+func delete_character(character_id: int) -> void:
+	_send({"t": "delete_char", "d": {"char_id": character_id}})
+
+
+func select_character(character_id: int) -> void:
+	_send({"t": "select_char", "d": {"char_id": character_id}})
 
 
 func send_move(point: Vector3) -> void:
@@ -57,7 +75,6 @@ func _process(delta: float) -> void:
 				_schedule_retry("No se pudo conectar (¿está corriendo el servidor?)")
 		return
 
-	# Estado CONNECTED
 	if _socket.get_ready_state() != WebSocketPeer.STATE_OPEN:
 		_schedule_retry("Servidor desconectado")
 		return
@@ -87,20 +104,28 @@ func _on_open() -> void:
 	_state = State.CONNECTED
 	print("[net] conectado")
 	connected.emit()
-	_send_login()
+
+	if not _token.is_empty():
+		# Reconexión: reanuda la sesión sin volver a pedir contraseña.
+		_send({"t": "resume", "d": {"token": _token}})
+	elif not _pending.is_empty():
+		_send(_pending)
+		_pending = {}
+
 	_send_ping()
-
-
-func _send_login() -> void:
-	if _user.is_empty():
-		return
-	_send({"t": "login", "d": {"user": _user}})
 
 
 func _send_ping() -> void:
 	if _send({"t": "ping", "d": {}}):
 		_last_ping_msec = Time.get_ticks_msec()
 		_ping_left = PING_INTERVAL
+
+
+func _queue_or_send(message: Dictionary) -> void:
+	if _state == State.CONNECTED:
+		_send(message)
+	else:
+		_pending = message
 
 
 func _send(message: Dictionary) -> bool:
@@ -129,13 +154,25 @@ func _handle_packet(packet: PackedByteArray) -> void:
 		"pong":
 			var rtt := Time.get_ticks_msec() - _last_ping_msec
 			pong_received.emit(rtt)
+		"login_ok":
+			_token = str(d.get("token", ""))
+			login_ok.emit(d)
+		"char_created":
+			char_created.emit(d)
+		"char_deleted":
+			char_deleted.emit(int(d.get("char_id", 0)))
 		"welcome":
 			print("[net] welcome recibido")
 			welcome_received.emit(d)
 		"snapshot":
 			snapshot_received.emit(d)
 		"err":
-			push_warning("[net] error del servidor: %s" % d)
+			var code := str(d.get("code", "error"))
+			var message := str(d.get("msg", "Error del servidor"))
+			if code == "session_expired":
+				_token = ""
+			print("[net] error del servidor: %s (%s)" % [message, code])
+			server_error.emit(code, message)
 		_:
 			push_warning("[net] mensaje desconocido: %s" % mtype)
 

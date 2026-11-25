@@ -7,12 +7,12 @@ package world
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"math"
 	"slices"
 	"time"
 
+	"munext/server/internal/model"
 	"munext/server/internal/protocol"
 )
 
@@ -25,10 +25,12 @@ const (
 	SnapshotEvery = 2
 	// PlayerSpeed es la velocidad de movimiento en metros por segundo.
 	PlayerSpeed = 6.0
-	// MapHalfSize limita el área jugable del mapa plano de F1.
+	// MapHalfSize limita el área jugable del mapa plano de F1/F2.
 	MapHalfSize = 19.0
-	// SpawnRadius es la distancia al centro donde aparecen los jugadores.
-	SpawnRadius = 3.0
+	// MapID identifica el único mapa del MVP por ahora.
+	MapID = "llanuras"
+	// saveInterval es cada cuánto se persisten los personajes conectados.
+	saveInterval = 60 * time.Second
 )
 
 // Command es una acción que las conexiones envían al game loop.
@@ -38,10 +40,10 @@ type Command interface {
 	apply(*World)
 }
 
-// Join agrega un jugador al mundo.
+// Join agrega un jugador (personaje seleccionado) al mundo.
 type Join struct {
 	SessionID int64
-	User      string
+	Character model.Character
 	Out       chan<- []byte
 }
 
@@ -60,18 +62,22 @@ type Leave struct {
 	SessionID int64
 }
 
-func (l Leave) apply(w *World) { delete(w.players, l.SessionID) }
+func (l Leave) apply(w *World) { w.removePlayer(l.SessionID) }
 
 type player struct {
-	ID   int64
-	Name string
-	X, Z float64
+	ID        int64 // id del personaje (estable, viene de la BD)
+	SessionID int64
+	Name      string
+	Class     string
+	Level     int
+	X, Z      float64
 	// TargetX/TargetZ es el destino actual (click-to-move por ahora).
 	TargetX, TargetZ float64
 	HasTarget        bool
 	Rot              float64
 	Anim             string
 	Out              chan<- []byte
+	dirty            bool
 }
 
 func (p *player) entity() protocol.Entity {
@@ -90,17 +96,20 @@ func (p *player) entity() protocol.Entity {
 // World es el estado del mundo y su game loop.
 type World struct {
 	log     *slog.Logger
-	players map[int64]*player
+	players map[int64]*player // por SessionID
 	inbox   chan Command
+	saveCh  chan<- model.CharacterState
 	tick    uint64
 }
 
-// New crea un mundo vacío.
-func New(log *slog.Logger) *World {
+// New crea un mundo vacío. saveCh recibe los estados a persistir; puede ser
+// nil si no se quiere persistencia (tests).
+func New(log *slog.Logger, saveCh chan<- model.CharacterState) *World {
 	return &World{
 		log:     log,
 		players: make(map[int64]*player),
 		inbox:   make(chan Command, 256),
+		saveCh:  saveCh,
 	}
 }
 
@@ -111,17 +120,20 @@ func (w *World) Inbox() chan<- Command { return w.inbox }
 func (w *World) Run(ctx context.Context) {
 	ticker := time.NewTicker(TickDuration)
 	defer ticker.Stop()
+	saveTicker := time.NewTicker(saveInterval)
+	defer saveTicker.Stop()
 
 	w.log.Info("mundo iniciado",
 		"tick_rate", TickRate,
 		"snapshot_rate", TickRate/SnapshotEvery,
-		"map", "llanuras",
+		"map", MapID,
 	)
 
 	dt := TickDuration.Seconds()
 	for {
 		select {
 		case <-ctx.Done():
+			w.saveAll()
 			w.log.Info("mundo detenido")
 			return
 		case cmd := <-w.inbox:
@@ -132,6 +144,8 @@ func (w *World) Run(ctx context.Context) {
 			if w.tick%SnapshotEvery == 0 {
 				w.broadcast()
 			}
+		case <-saveTicker.C:
+			w.saveDirty()
 		}
 	}
 }
@@ -140,24 +154,34 @@ func (w *World) addPlayer(j Join) {
 	if _, exists := w.players[j.SessionID]; exists {
 		return
 	}
-
-	// Spawn en espiral áurea alrededor del centro para no superponerse.
-	angle := float64(j.SessionID) * 2.399963229728653
-	p := &player{
-		ID:   j.SessionID,
-		Name: w.uniqueName(j.User),
-		X:    math.Cos(angle) * SpawnRadius,
-		Z:    math.Sin(angle) * SpawnRadius,
-		Anim: "idle",
-		Out:  j.Out,
+	// Un personaje solo puede estar online una vez (evita duplicar entidades).
+	for _, p := range w.players {
+		if p.ID == j.Character.ID {
+			w.sendError(j.Out, "character_online", "Ese personaje ya está en línea")
+			return
+		}
 	}
-	w.players[p.ID] = p
+
+	c := j.Character
+	p := &player{
+		ID:        c.ID,
+		SessionID: j.SessionID,
+		Name:      c.Name,
+		Class:     c.Class,
+		Level:     c.Level,
+		X:         c.X,
+		Z:         c.Z,
+		Anim:      "idle",
+		Out:       j.Out,
+	}
+	w.players[p.SessionID] = p
 
 	welcome, err := protocol.Encode("welcome", protocol.Welcome{
 		Self:         p.entity(),
-		Map:          "llanuras",
+		Map:          MapID,
 		TickRate:     TickRate,
 		SnapshotRate: TickRate / SnapshotEvery,
+		Character:    model.CharacterSummary{ID: c.ID, Name: c.Name, Class: c.Class, Level: c.Level},
 	})
 	if err != nil {
 		w.log.Error("no se pudo codificar el welcome", "err", err)
@@ -165,24 +189,18 @@ func (w *World) addPlayer(j Join) {
 	}
 	w.send(p, welcome)
 
-	w.log.Info("jugador entró al mundo", "id", p.ID, "name", p.Name)
+	w.log.Info("jugador entró al mundo", "id", p.ID, "name", p.Name, "session", p.SessionID)
 }
 
-func (w *World) uniqueName(base string) string {
-	name := base
-	for i := 2; w.nameTaken(name); i++ {
-		name = fmt.Sprintf("%s-%d", base, i)
+func (w *World) removePlayer(sessionID int64) {
+	p, ok := w.players[sessionID]
+	if !ok {
+		return
 	}
-	return name
-}
-
-func (w *World) nameTaken(name string) bool {
-	for _, p := range w.players {
-		if p.Name == name {
-			return true
-		}
-	}
-	return false
+	// Guardado final al desconectarse (docs/05-base-de-datos.md).
+	w.queueSave(p)
+	delete(w.players, sessionID)
+	w.log.Info("jugador salió del mundo", "id", p.ID, "name", p.Name)
 }
 
 func (w *World) setTarget(m Move) {
@@ -227,6 +245,7 @@ func (w *World) simulate(dt float64) {
 			p.Z += dz / dist * step
 			p.Anim = "run"
 		}
+		p.dirty = true
 	}
 }
 
@@ -263,12 +282,57 @@ func (w *World) entities() []protocol.Entity {
 	return ents
 }
 
+func (w *World) saveDirty() {
+	for _, p := range w.players {
+		if p.dirty {
+			w.queueSave(p)
+		}
+	}
+}
+
+func (w *World) saveAll() {
+	for _, p := range w.players {
+		w.queueSave(p)
+	}
+}
+
+// queueSave encola el estado del personaje sin bloquear el game loop.
+func (w *World) queueSave(p *player) {
+	if w.saveCh == nil {
+		return
+	}
+	state := model.CharacterState{
+		CharacterID: p.ID,
+		MapID:       MapID,
+		X:           p.X,
+		Y:           0,
+		Z:           p.Z,
+	}
+	select {
+	case w.saveCh <- state:
+		p.dirty = false
+	default:
+		w.log.Warn("cola de guardado llena: se reintentará en el próximo ciclo", "id", p.ID)
+	}
+}
+
 func (w *World) send(p *player, data []byte) {
 	select {
 	case p.Out <- data:
 	default:
 		// Cliente lento o desconectándose: descartar evita bloquear el mundo.
 		w.log.Warn("buzón lleno: mensaje descartado", "player", p.Name)
+	}
+}
+
+func (w *World) sendError(out chan<- []byte, code, msg string) {
+	data, err := protocol.Encode("err", protocol.Error{Code: code, Msg: msg})
+	if err != nil {
+		return
+	}
+	select {
+	case out <- data:
+	default:
 	}
 }
 

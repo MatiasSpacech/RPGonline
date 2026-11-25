@@ -1,8 +1,8 @@
 package netio
 
-// Test de integración F1: dos clientes WebSocket reales contra el game loop
-// real. Verifica login, nombres únicos y que el movimiento de uno se replica
-// al otro por snapshot.
+// Test de integración F2: dos clientes reales contra el game loop real y una
+// capa de cuentas en memoria. Verifica login, selección de personaje y que el
+// movimiento de uno se replica al otro por snapshot.
 
 import (
 	"context"
@@ -15,87 +15,81 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"munext/server/internal/model"
 	"munext/server/internal/protocol"
 	"munext/server/internal/world"
 )
 
-func loginAs(t *testing.T, conn *websocket.Conn, user string) {
-	t.Helper()
-	msg, err := protocol.Encode("login", protocol.Login{User: user})
-	if err != nil {
-		t.Fatalf("Encode login: %v", err)
-	}
-	if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
-		t.Fatalf("write login: %v", err)
-	}
+type authedClient struct {
+	conn  *websocket.Conn
+	token string
+	chars []model.CharacterSummary
 }
 
-func readWelcome(t *testing.T, conn *websocket.Conn) protocol.Welcome {
+func loginClient(t *testing.T, ts *httptest.Server, username, password string) authedClient {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		_ = conn.SetReadDeadline(deadline)
-		_, data, err := conn.ReadMessage()
-		if err != nil {
-			t.Fatalf("leyendo welcome: %v", err)
-		}
-		env, err := protocol.Decode(data)
-		if err != nil {
-			t.Fatalf("Decode: %v", err)
-		}
-		if env.T != "welcome" {
-			continue
-		}
-		var welcome protocol.Welcome
-		if err := json.Unmarshal(env.D, &welcome); err != nil {
-			t.Fatalf("payload welcome: %v", err)
-		}
-		return welcome
+	conn := dial(t, ts)
+	send(t, conn, "login", protocol.Auth{User: username, Pass: password})
+
+	env := readEnvelope(t, conn, "login_ok", 2*time.Second)
+	var ok protocol.LoginOK
+	if err := json.Unmarshal(env.D, &ok); err != nil {
+		t.Fatalf("login_ok: %v", err)
 	}
+	return authedClient{conn: conn, token: ok.Token, chars: ok.Chars}
+}
+
+func (c authedClient) selectCharacter(t *testing.T, characterID int64) protocol.Welcome {
+	t.Helper()
+	send(t, c.conn, "select_char", protocol.SelectChar{CharID: characterID})
+
+	env := readEnvelope(t, c.conn, "welcome", 2*time.Second)
+	var w protocol.Welcome
+	if err := json.Unmarshal(env.D, &w); err != nil {
+		t.Fatalf("welcome: %v", err)
+	}
+	return w
 }
 
 func TestTwoClientsSeeEachOther(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	gameWorld := world.New(log)
+	gameWorld := world.New(log, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	go gameWorld.Run(ctx)
 
-	s := New(log, gameWorld.Inbox())
+	fake := newFakeAccounts()
+	user1 := fake.addUser("matias", "123456")
+	char1 := fake.addCharacter(user1.ID, "Kaen", model.ClassWarrior)
+	user2 := fake.addUser("otro", "123456")
+	char2 := fake.addCharacter(user2.ID, "Lyr", model.ClassMage)
+
+	s := New(log, gameWorld.Inbox(), fake)
 	ts := httptest.NewServer(s.Handler())
 	t.Cleanup(ts.Close)
 
-	conn1 := dial(t, ts)
-	conn2 := dial(t, ts)
+	client1 := loginClient(t, ts, "matias", "123456")
+	welcome1 := client1.selectCharacter(t, char1.ID)
+	client2 := loginClient(t, ts, "otro", "123456")
+	welcome2 := client2.selectCharacter(t, char2.ID)
 
-	loginAs(t, conn1, "dev")
-	welcome1 := readWelcome(t, conn1)
-	loginAs(t, conn2, "dev")
-	welcome2 := readWelcome(t, conn2)
-
-	if welcome1.Self.ID == welcome2.Self.ID {
-		t.Fatalf("los dos clientes recibieron el mismo id: %d", welcome1.Self.ID)
+	if welcome1.Character.ID == welcome2.Character.ID {
+		t.Fatalf("los dos clientes seleccionaron el mismo personaje: %d", welcome1.Character.ID)
 	}
-	if welcome1.Self.Name == welcome2.Self.Name {
-		t.Fatalf("nombres duplicados: %q", welcome1.Self.Name)
+	if welcome1.Character.Name != "Kaen" || welcome2.Character.Name != "Lyr" {
+		t.Fatalf("personajes = %q / %q", welcome1.Character.Name, welcome2.Character.Name)
 	}
 
 	// El jugador 1 se mueve; el jugador 2 debe verlo acercarse a x=8.
-	move, err := protocol.Encode("move_req", protocol.MoveReq{X: 8, Z: 0})
-	if err != nil {
-		t.Fatalf("Encode move: %v", err)
-	}
-	if err := conn1.WriteMessage(websocket.TextMessage, move); err != nil {
-		t.Fatalf("write move: %v", err)
-	}
+	send(t, client1.conn, "move_req", protocol.MoveReq{X: 8, Z: 0})
 
 	deadline := time.Now().Add(5 * time.Second)
 	sawBoth := false
 	var lastX float64
 	for time.Now().Before(deadline) {
-		_ = conn2.SetReadDeadline(deadline)
-		_, data, err := conn2.ReadMessage()
+		_ = client2.conn.SetReadDeadline(deadline)
+		_, data, err := client2.conn.ReadMessage()
 		if err != nil {
 			t.Fatalf("leyendo snapshots: %v", err)
 		}
@@ -108,19 +102,19 @@ func TestTwoClientsSeeEachOther(t *testing.T) {
 		}
 		var snap protocol.Snapshot
 		if err := json.Unmarshal(env.D, &snap); err != nil {
-			t.Fatalf("payload snapshot: %v", err)
+			t.Fatalf("snapshot: %v", err)
 		}
 
 		ids := make(map[int64]bool, len(snap.Ents))
 		for _, ent := range snap.Ents {
 			ids[ent.ID] = true
-			if ent.ID == welcome1.Self.ID {
+			if ent.ID == char1.ID {
 				lastX = ent.X
 			}
 		}
-		sawBoth = ids[welcome1.Self.ID] && ids[welcome2.Self.ID]
+		sawBoth = ids[char1.ID] && ids[char2.ID]
 		if sawBoth && lastX > 1.0 {
-			return // éxito: ve a ambos y al jugador 1 moviéndose
+			return // éxito
 		}
 	}
 

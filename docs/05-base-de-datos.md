@@ -80,22 +80,26 @@ CREATE TABLE character_skills (
 ## 3. Acceso y patrón de persistencia
 
 - Librería: **`pgx`** (driver puro Go, pool incluido: `pgxpool`).
-- El **game loop nunca bloquea esperando la BD**: cuando guarda un personaje, encola el job al pool de guardado (2–4 goroutines) y sigue simulando. El resultado (ok/err) llega por canal y solo se loguea.
+- El **game loop nunca bloquea esperando la BD**: encola los estados a guardar en un canal y una goroutine *saver* los escribe (`db.RunSaver`). El mundo sigue simulando; los errores solo se loguean.
 - Guardado:
-  - **Cada 60 s** para personajes con cambios (dirty flag) — perder ≤60 s de progreso ante un crash es aceptable en MVP;
-  - **inmediato** en eventos críticos: crear personaje, mejora de ítem (+N), level up, logout.
-  - Transacciones: la mejora de ítem hace todo en una tx (leer materiales, descontar, aplicar resultado) para no perder ítems a mitad.
+  - **Cada 60 s** para personajes con cambios (`dirty flag`) — perder ≤60 s de progreso ante un crash es aceptable en MVP;
+  - **al desconectarse** (guardado final) y **al apagar el servidor** (todos los conectados);
+  - eventos críticos de progreso (crear personaje, mejora +N, level up) usarán transacciones en fases posteriores;
+  - transacciones: la mejora de ítem hará todo en una tx para no perder ítems a mitad.
 - Cache de personajes en memoria mientras están conectados; la BD es "snapshot + cola de guardado", no lectura continua.
 
 ## 4. Migraciones
 
-- Herramienta: **golang-migrate** con archivos SQL versionados en `server/migrations/`.
-- Reglas: migraciones solo hacia adelante (forward-only) en dev; cada migración se puede revertir durante el desarrollo pero nunca en producción sin backup.
-- Ejemplo de flujo: F2 crea `0001_init.sql` con las tablas de arriba.
+- Runner propio embebido en `server/internal/db/db.go` + archivos SQL versionados en `server/internal/db/migrations/`.
+- Cada archivo se aplica dentro de una transacción y se registra en `schema_migrations`; usa el protocolo simple de pgx para permitir varios statements por archivo.
+- Se ejecutan automáticamente al arrancar el servidor y son idempotentes (solo aplica las que faltan).
+- Reglas: migraciones solo hacia adelante (forward-only); en producción, backup antes de migrar.
 
 ## 5. Operación
 
-- **Dev**: Postgres en Docker Compose (`docker compose up db`) con volumen local; usuario/db `munext`.
+- **Dev sin Docker** (entorno actual): `make devdb` levanta PostgreSQL 16 embebido, persistente en `server/.data/postgres` (ignorado por Git). La primera vez descarga los binarios (~30 MB).
+- **Dev con Docker**: `docker compose -f deploy/docker-compose.yml up -d db` (Postgres 16 con volumen).
+- DSN por defecto: `postgres://postgres:postgres@127.0.0.1:5432/munext?sslmode=disable`; se puede sobreescribir con `MUNEXT_DATABASE_URL` o el flag `-dsn`.
 - **Backup**: `pg_dump` diario programado (cron del VPS) a archivo + copia fuera del VPS (F7).
 - **Passwords**: ver [06-seguridad](06-seguridad.md) — Argon2id, nunca MD5/SHA solos.
 - No hay adminer/pgweb en producción; en dev, cualquier GUI local (DBeaver/pgAdmin) apuntando a localhost.

@@ -1,6 +1,7 @@
 # --- Go ---
 server/munext
 server/bin/
+server/.data/
 *.test
 *.out
 

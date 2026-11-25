@@ -1,7 +1,8 @@
-[gd_scene load_steps=10 format=3]
+[gd_scene load_steps=11 format=3]
 
 [ext_resource type="Script" path="res://scripts/main.gd" id="1_main"]
 [ext_resource type="Script" path="res://scripts/net_client.gd" id="2_net"]
+[ext_resource type="Script" path="res://scripts/auth_ui.gd" id="3_ui"]
 
 [sub_resource type="Environment" id="Environment_1"]
 background_mode = 1
@@ -133,4 +134,8 @@ offset_bottom = 700.0
 mouse_filter = 2
 theme_override_colors/font_color = Color(0.55, 0.6, 0.72, 1)
 theme_override_font_sizes/font_size = 14
-text = "F1 · Click izquierdo para moverte. El servidor manda: snapshots a 10 Hz + interpolación de 100 ms."
+text = "F2 · Click izquierdo para moverte. Snapshots a 10 Hz + interpolación de 100 ms."
+
+[node name="UIOverlay" type="CanvasLayer" parent="."]
+layer = 10
+script = ExtResource("3_ui")
