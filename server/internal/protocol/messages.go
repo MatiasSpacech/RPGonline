@@ -58,14 +58,18 @@ type MoveReq struct {
 
 // Entity es el estado visible de una entidad en una snapshot.
 type Entity struct {
-	ID   int64   `json:"id"`
-	Kind string  `json:"k"`
-	Name string  `json:"name,omitempty"`
-	X    float64 `json:"x"`
-	Y    float64 `json:"y"`
-	Z    float64 `json:"z"`
-	Rot  float64 `json:"r"`
-	Anim string  `json:"anim,omitempty"`
+	ID    int64   `json:"id"`
+	Kind  string  `json:"k"`
+	Tmpl  string  `json:"tmpl,omitempty"`
+	Name  string  `json:"name,omitempty"`
+	Level int     `json:"level,omitempty"`
+	X     float64 `json:"x"`
+	Y     float64 `json:"y"`
+	Z     float64 `json:"z"`
+	Rot   float64 `json:"r"`
+	Anim  string  `json:"anim,omitempty"`
+	HP    int     `json:"hp,omitempty"`
+	HPMax int     `json:"hp_max,omitempty"`
 }
 
 // Welcome es la primera respuesta tras seleccionar un personaje.

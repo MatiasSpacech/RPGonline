@@ -2,7 +2,7 @@
 
 MMORPG 3D de acción **inspirado en MU Online** (dark fantasy, grind satisfactorio, mejora de ítems +N, click-to-move) pero con nombres, arte y diseño propios. Online a escala pequeña: **8–64 jugadores concurrentes por servidor**, con arquitectura que puede crecer después.
 
-> Estado: **F2 completado** · cuentas Argon2id, personajes persistentes en PostgreSQL 16, lobby, token de sesión y guardado de posición. Siguiente: **F3 — combate**.
+> Estado: **F3 completado** · mobs con IA y respawn, auto-ataque autoritativo, XP/niveles, pociones, muerte y persistencia del progreso. Siguiente: **F4 — botín e ítems**.
 
 ## Stack decidido
 
@@ -34,42 +34,43 @@ MMORPG 3D de acción **inspirado en MU Online** (dark fantasy, grind satisfactor
 1. **F0 ✅** – Setup de herramientas y aprendizaje dirigido
 2. **F1 ✅** – "Walking simulator" online: conectar, ver a otros jugadores moverse
 3. **F2 ✅** – Cuentas y personajes persistentes (login + Postgres)
-4. **F3** – Combate contra mobs, XP y niveles
+4. **F3 ✅** – Combate contra mobs, XP y niveles
 5. **F4** – Loot, inventario, equipamiento y mejora +N
 6. **F5** – Mapas múltiples, clases y skills
 7. **F6** – Chat, party, muerte, balance
 8. **F7** – Despliegue y playtest con amigos
 
-## Correr el juego (F2 — cuentas y personajes)
+## Correr el juego (F3 — combate)
 
 Requisitos: Go 1.27+ y Godot 4.7+ (instalados en `~/.local`; `~/.bashrc` ya agrega `~/.local/go/bin` y `~/.local/bin` al PATH — abrí una terminal nueva o `source ~/.bashrc`).
 
 ```bash
 # Terminal 1 — base de datos (PostgreSQL 16 embebido, sin Docker ni sudo)
 make devdb
-#    primera vez: descarga binarios e inicializa en server/.data/postgres
 #    esperá el mensaje "Postgres listo: postgres://..."
 
-# Terminal 2 — servidor (aplica las migraciones solo)
+# Terminal 2 — servidor (aplica migraciones y carga shared/gamedata)
 make server          # ws://127.0.0.1:8080/ws · healthz: :8080/healthz
 
 # Terminal 3 — cliente Godot (una o dos ventanas)
 godot --path client
 ```
 
-Desde la pantalla de login:
+Controles y loop:
 
-- **Crear cuenta**: usuario (3-16) + contraseña (6+); el botón registra y entra directo.
-- Elegí **Guerrero/Mago/Arquera**, escribí el nombre y creá hasta **3 personajes**.
-- **Entrar al mundo** → click izquierdo para caminar.
-- Cerrá el cliente y volvé a entrar: el personaje aparece donde lo dejaste (guardado al desconectar y cada 60 s).
+- **Crear cuenta** y personaje, elegí clase y **Entrar al mundo**.
+- **Click en el suelo** → caminar. **Click en un mob** → auto-ataque (el servidor te acerca hasta rango).
+- **1 / 2** o los botones del HUD → poción de HP/MP: tenés 5 de cada una, curación 40%, cooldown 3 s, se reponen al morir.
+- Matá mobs para ganar XP; al subir de nivel ganás **+5 puntos**: usá los `+` del panel derecho (STR/AGI/VIT/ENE). Nivel, XP y stats se guardan solos.
+- Si morís: respawn en el centro y −3% del XP del nivel (nunca perdés nivel); los mobs vuelven a su spawn.
+- Contenido actual: 5 tipos de mob y 18 spawns en `shared/gamedata/`.
 
 Tests:
 
 ```bash
 make test            # unitarios + integración en memoria (sin DB)
 make test-db         # incluye PostgreSQL real (con `make devdb` corriendo)
-make client-autotest # smoke test headless del cliente (con DB + server corriendo)
+make client-autotest # smoke test headless: registro/login → personaje → matar mob
 ```
 
 Atajos: `make devdb`, `make server`, `make client`, `make test`, `make test-db`.

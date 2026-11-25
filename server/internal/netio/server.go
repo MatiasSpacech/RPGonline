@@ -341,6 +341,45 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 			}
 			s.inbox <- world.Move{SessionID: sessionID, X: req.X, Z: req.Z}
 
+		case "attack":
+			if !sess.inWorld {
+				continue
+			}
+			var req protocol.Attack
+			if err := json.Unmarshal(env.D, &req); err != nil {
+				log.Warn("attack malformado", "err", err)
+				return
+			}
+			s.inbox <- world.Attack{SessionID: sessionID, Target: req.Target}
+
+		case "potion":
+			if !sess.inWorld {
+				continue
+			}
+			var req protocol.Potion
+			if err := json.Unmarshal(env.D, &req); err != nil {
+				log.Warn("potion malformado", "err", err)
+				return
+			}
+			if req.Kind != "hp" && req.Kind != "mp" {
+				continue
+			}
+			s.inbox <- world.Potion{SessionID: sessionID, Kind: req.Kind}
+
+		case "alloc_stat":
+			if !sess.inWorld {
+				continue
+			}
+			var req protocol.AllocStat
+			if err := json.Unmarshal(env.D, &req); err != nil {
+				log.Warn("alloc_stat malformado", "err", err)
+				return
+			}
+			switch req.Stat {
+			case "str", "agi", "vit", "ene":
+				s.inbox <- world.AllocStat{SessionID: sessionID, Stat: req.Stat}
+			}
+
 		default:
 			log.Debug("mensaje sin handler", "tipo", env.T)
 		}

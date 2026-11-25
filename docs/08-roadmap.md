@@ -56,14 +56,14 @@ El orden no es arbitrario: cada fase construye sobre la anterior y **cada una de
 
 ## F3 — Combate y progresión (3–5 sem) ❤ corazón técnico
 
-- [ ] Mobs en memoria con FSM (idle/aggro/chase/attack/dead/respawn), spawn points del archivo de mapa.
-- [ ] Auto-ataque con validación de rango/cooldown; fórmulas del GDD en paquete `combat` **con tests unitarios**.
-- [ ] XP al matar (atenuación por nivel), level up con stat points; barra de XP en HUD.
-- [ ] HP/maná con regen fuera de combate; potiones simples (objeto fijo, sin inventario aún).
-- [ ] Muerte del jugador: respawn + pérdida de XP del GDD.
-- [ ] Integración: script cliente-fake (login→mover→matar 10 mobs) como test smoke.
+- [x] Mobs cargados desde `shared/gamedata` (5 tipos, 18 spawns) con FSM idle/aggro/chase/attack/dead/respawn, leash y retaliación.
+- [x] Auto-ataque con validación de rango/cooldown y auto-approach server-side; fórmulas del GDD en `internal/combat` **con tests unitarios**.
+- [x] XP al matar con atenuación, level up (+5 puntos), asignación de stats (server + HUD) y guardado inmediato del progreso.
+- [x] HP/maná, regeneración fuera de combate (5 s) y pociones simples: 5+5 por vida, curación 40%, cooldown 3 s, se reponen al morir (sin inventario aún).
+- [x] Muerte del jugador: respawn en la ciudad, −3% del XP del nivel (sin perder nivel), los mobs vuelven a su spawn; toasts y teleport en el cliente.
+- [x] Integración: test e2e contra Postgres (matar mob → nivel 2 → persistir progreso), autotest headless del cliente (mata una babosa) y tests de combate/mundo.
 
-**Criterio de aceptación**: sesión completa de 15 min matando lobos, subo 2–3 niveles, muero una vez, todo persiste. Sin crashes en 30 min con 2 jugadores.
+**Criterio de aceptación**: ✅ verificado en tests (combate, level up, muerte, persistencia) y cliente headless. Falta tu sesión interactiva de 15 min y el stress de 2+ jugadores (previsto en F7).
 
 ## F4 — Botín, inventario y mejora (4–6 sem) ❤ corazón emocional
 

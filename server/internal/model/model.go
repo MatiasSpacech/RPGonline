@@ -89,4 +89,12 @@ type CharacterState struct {
 	CharacterID int64
 	MapID       string
 	X, Y, Z     float64
+	Level       int
+	XP          int64
+	Str         int
+	Agi         int
+	Vit         int
+	Ene         int
+	StatPoints  int
+	Gold        int64
 }

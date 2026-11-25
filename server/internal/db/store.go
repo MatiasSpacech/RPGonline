@@ -160,13 +160,16 @@ func (s *Store) LoadCharacter(ctx context.Context, userID, characterID int64) (m
 	return c, nil
 }
 
-// SaveCharacterState persiste posición y mapa (llamado desde el saver async).
+// SaveCharacterState persiste posición y progreso (llamado desde el saver async).
 func (s *Store) SaveCharacterState(ctx context.Context, st model.CharacterState) error {
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE characters
-		SET map_id = $2, pos_x = $3, pos_y = $4, pos_z = $5, last_played = now()
+		SET map_id = $2, pos_x = $3, pos_y = $4, pos_z = $5,
+		    level = $6, xp = $7, stat_str = $8, stat_agi = $9, stat_vit = $10, stat_ene = $11,
+		    stat_points = $12, gold = $13, last_played = now()
 		WHERE id = $1`,
-		st.CharacterID, st.MapID, st.X, st.Y, st.Z)
+		st.CharacterID, st.MapID, st.X, st.Y, st.Z,
+		st.Level, st.XP, st.Str, st.Agi, st.Vit, st.Ene, st.StatPoints, st.Gold)
 	if err != nil {
 		return fmt.Errorf("db: guardando personaje %d: %w", st.CharacterID, err)
 	}

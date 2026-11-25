@@ -17,6 +17,7 @@ import (
 
 	"munext/server/internal/accounts"
 	"munext/server/internal/db"
+	"munext/server/internal/gamedata"
 	"munext/server/internal/model"
 	"munext/server/internal/protocol"
 	"munext/server/internal/world"
@@ -49,7 +50,21 @@ func TestPersistenceAcrossReconnect(t *testing.T) {
 	saveCh := make(chan model.CharacterState, 64)
 	go db.RunSaver(saveCh, store, log)
 
-	gameWorld := world.New(log, saveCh)
+	// Un mob pasivo cerca del spawn: muere de un golpe y da 60 XP (nivel 1→2).
+	testData := &gamedata.Data{
+		MapID: "llanuras",
+		Mobs: map[string]gamedata.Mob{
+			"dummy": {
+				ID: "dummy", Name: "Dummy", Level: 1, HP: 20,
+				DamageMin: 1, DamageMax: 2, Defense: 0, XP: 60,
+				Speed: 1, AggroRadius: 0, AttackRange: 1.5,
+				AttackIntervalMS: 1000, RespawnSeconds: 10, Passive: true,
+			},
+		},
+		Spawns: []gamedata.Spawn{{Mob: "dummy", X: 1.5, Z: 0}},
+	}
+
+	gameWorld := world.New(log, saveCh, testData)
 	worldCtx, cancelWorld := context.WithCancel(context.Background())
 	t.Cleanup(cancelWorld)
 	go gameWorld.Run(worldCtx)
@@ -131,7 +146,39 @@ func TestPersistenceAcrossReconnect(t *testing.T) {
 		t.Fatal("el personaje no se movió en el servidor")
 	}
 
-	// 4) Desconectar: el mundo debe guardar la posición final.
+	// 4) Atacar un mob: debe morir, dar XP y subir a nivel 2.
+	send(t, conn, "attack", protocol.Attack{Target: 1_000_000})
+	deadline = time.Now().Add(6 * time.Second)
+	leveledUp := false
+	for time.Now().Before(deadline) && !leveledUp {
+		_ = conn.SetReadDeadline(deadline)
+		_, data, err := conn.ReadMessage()
+		if err != nil {
+			t.Fatalf("esperando level up: %v", err)
+		}
+		msg, err := protocol.Decode(data)
+		if err != nil {
+			t.Fatalf("Decode: %v", err)
+		}
+		if msg.T != "self_state" {
+			continue
+		}
+		var state protocol.SelfState
+		if err := json.Unmarshal(msg.D, &state); err != nil {
+			t.Fatalf("self_state: %v", err)
+		}
+		if state.Level == 2 {
+			leveledUp = true
+			if state.StatPoints != 5 {
+				t.Fatalf("stat points tras level up = %d, quería 5", state.StatPoints)
+			}
+		}
+	}
+	if !leveledUp {
+		t.Fatal("el personaje no subió a nivel 2 tras matar el mob")
+	}
+
+	// 5) Desconectar: el mundo debe guardar posición + progreso.
 	_ = conn.Close()
 
 	var saved model.Character
@@ -141,16 +188,19 @@ func TestPersistenceAcrossReconnect(t *testing.T) {
 		if err != nil {
 			t.Fatalf("LoadCharacter: %v", err)
 		}
-		if saved.X > 1.0 {
+		if saved.Level == 2 {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("la posición no se guardó a tiempo (x=%v)", saved.X)
+			t.Fatalf("el progreso no se guardó a tiempo (level=%d)", saved.Level)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+	if saved.StatPoints != 5 {
+		t.Fatalf("stat points guardados = %d, quería 5", saved.StatPoints)
+	}
 
-	// 5) Reconectar + login + seleccionar: debe reaparecer donde quedó.
+	// 6) Reconectar + login + seleccionar: nivel y posición se restauran.
 	conn2 := dial(t, ts)
 	send(t, conn2, "login", protocol.Auth{User: "matias", Pass: "secreto123"})
 	readEnvelope(t, conn2, "login_ok", 3*time.Second)
@@ -161,6 +211,9 @@ func TestPersistenceAcrossReconnect(t *testing.T) {
 		t.Fatalf("welcome2: %v", err)
 	}
 
+	if welcome2.Character.Level != 2 {
+		t.Fatalf("nivel restaurado = %d, quería 2", welcome2.Character.Level)
+	}
 	if math.Abs(welcome2.Self.X-saved.X) > 0.001 || math.Abs(welcome2.Self.Z-saved.Z) > 0.001 {
 		t.Fatalf("posición al reingresar = (%v, %v), guardada = (%v, %v)",
 			welcome2.Self.X, welcome2.Self.Z, saved.X, saved.Z)

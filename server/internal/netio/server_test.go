@@ -178,6 +178,40 @@ func TestAuthCreateAndSelectFlow(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("no llegó world.Move")
 	}
+
+	// attack / potion / alloc_stat también se reenvían al mundo.
+	send(t, conn, "attack", protocol.Attack{Target: 1000001})
+	select {
+	case cmd := <-inbox:
+		attack, ok := cmd.(world.Attack)
+		if !ok || attack.Target != 1000001 {
+			t.Fatalf("comando = %#v, quería world.Attack{Target: 1000001}", cmd)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no llegó world.Attack")
+	}
+
+	send(t, conn, "potion", protocol.Potion{Kind: "hp"})
+	select {
+	case cmd := <-inbox:
+		potion, ok := cmd.(world.Potion)
+		if !ok || potion.Kind != "hp" {
+			t.Fatalf("comando = %#v, quería world.Potion{Kind: hp}", cmd)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no llegó world.Potion")
+	}
+
+	send(t, conn, "alloc_stat", protocol.AllocStat{Stat: "str"})
+	select {
+	case cmd := <-inbox:
+		alloc, ok := cmd.(world.AllocStat)
+		if !ok || alloc.Stat != "str" {
+			t.Fatalf("comando = %#v, quería world.AllocStat{Stat: str}", cmd)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no llegó world.AllocStat")
+	}
 }
 
 func TestWrongPasswordKeepsConnectionUsable(t *testing.T) {

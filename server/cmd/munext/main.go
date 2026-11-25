@@ -5,15 +5,18 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
 	"munext/server/internal/accounts"
 	"munext/server/internal/db"
+	"munext/server/internal/gamedata"
 	"munext/server/internal/model"
 	"munext/server/internal/netio"
 	"munext/server/internal/world"
@@ -29,6 +32,7 @@ func main() {
 
 	addr := flag.String("addr", "127.0.0.1:8080", "dirección de escucha (host:puerto)")
 	dsn := flag.String("dsn", dsnDefault, "URL de PostgreSQL (o MUNEXT_DATABASE_URL)")
+	gamedataPath := flag.String("gamedata", "../shared/gamedata", "directorio de datos estáticos")
 	verbose := flag.Bool("v", false, "log detallado (nivel debug)")
 	flag.Parse()
 
@@ -41,6 +45,20 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// --- Datos estáticos del juego ---
+	dataDir, err := resolveGameDataPath(*gamedataPath)
+	if err != nil {
+		logger.Error("no se pudo encontrar gamedata", "err", err)
+		os.Exit(1)
+	}
+	gameData, err := gamedata.Load(os.DirFS(dataDir), "mobs.json", "maps/llanuras.json")
+	if err != nil {
+		logger.Error("gamedata inválida", "err", err)
+		os.Exit(1)
+	}
+	logger.Info("gamedata cargada", "dir", dataDir, "map", gameData.MapID,
+		"mobs", len(gameData.Mobs), "spawns", len(gameData.Spawns))
 
 	// --- Base de datos ---
 	pool, err := db.Open(ctx, *dsn)
@@ -71,7 +89,7 @@ func main() {
 	runCtx, cancelWorld := context.WithCancel(context.Background())
 	defer cancelWorld()
 
-	gameWorld := world.New(logger, saveCh)
+	gameWorld := world.New(logger, saveCh, gameData)
 	worldDone := make(chan struct{})
 	go func() {
 		defer close(worldDone)
@@ -120,4 +138,18 @@ func main() {
 	}
 
 	logger.Info("servidor detenido")
+}
+
+// resolveGameDataPath prueba la ruta pedida y dos ubicaciones habituales.
+func resolveGameDataPath(preferred string) (string, error) {
+	candidates := []string{preferred, "shared/gamedata", "../shared/gamedata"}
+	for _, dir := range candidates {
+		if dir == "" {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(dir, "mobs.json")); err == nil {
+			return dir, nil
+		}
+	}
+	return "", fmt.Errorf("no se encontró mobs.json (probé %q, shared/gamedata, ../shared/gamedata)", preferred)
 }

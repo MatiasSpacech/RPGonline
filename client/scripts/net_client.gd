@@ -12,6 +12,12 @@ signal welcome_received(data: Dictionary)
 signal snapshot_received(data: Dictionary)
 signal pong_received(rtt_ms: int)
 signal server_error(code: String, message: String)
+signal self_state_received(data: Dictionary)
+signal damage_received(data: Dictionary)
+signal mob_dead_received(data: Dictionary)
+signal death_received(data: Dictionary)
+signal levelup_received(data: Dictionary)
+signal teleport_received(data: Dictionary)
 
 enum State { DISCONNECTED, CONNECTING, CONNECTED }
 
@@ -56,6 +62,18 @@ func send_move(point: Vector3) -> void:
 	if _state != State.CONNECTED:
 		return
 	_send({"t": "move_req", "d": {"x": point.x, "y": 0.0, "z": point.z}})
+
+
+func attack(target_id: int) -> void:
+	_send({"t": "attack", "d": {"target": target_id}})
+
+
+func use_potion(kind: String) -> void:
+	_send({"t": "potion", "d": {"kind": kind}})
+
+
+func alloc_stat(stat: String) -> void:
+	_send({"t": "alloc_stat", "d": {"stat": stat}})
 
 
 func _process(delta: float) -> void:
@@ -166,6 +184,18 @@ func _handle_packet(packet: PackedByteArray) -> void:
 			welcome_received.emit(d)
 		"snapshot":
 			snapshot_received.emit(d)
+		"self_state":
+			self_state_received.emit(d)
+		"dmg":
+			damage_received.emit(d)
+		"mob_dead":
+			mob_dead_received.emit(d)
+		"death":
+			death_received.emit(d)
+		"levelup":
+			levelup_received.emit(d)
+		"teleport":
+			teleport_received.emit(d)
 		"err":
 			var code := str(d.get("code", "error"))
 			var message := str(d.get("msg", "Error del servidor"))

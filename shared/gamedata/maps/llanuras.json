@@ -1,0 +1,23 @@
+{
+  "id": "llanuras",
+  "spawns": [
+    { "mob": "babosa", "x": -5, "z": 4 },
+    { "mob": "babosa", "x": -7, "z": 6 },
+    { "mob": "babosa", "x": 5, "z": 7 },
+    { "mob": "babosa", "x": 7, "z": 5 },
+    { "mob": "babosa", "x": -3, "z": 10 },
+    { "mob": "babosa", "x": 3, "z": -7 },
+    { "mob": "lobo", "x": -9, "z": -3 },
+    { "mob": "lobo", "x": -12, "z": 2 },
+    { "mob": "lobo", "x": 9, "z": -4 },
+    { "mob": "lobo", "x": 12, "z": 3 },
+    { "mob": "lobo", "x": 6, "z": -11 },
+    { "mob": "bandido", "x": -12, "z": -10 },
+    { "mob": "bandido", "x": 13, "z": -12 },
+    { "mob": "bandido", "x": -6, "z": -14 },
+    { "mob": "bandido", "x": 10, "z": 10 },
+    { "mob": "escorpion", "x": -15, "z": 12 },
+    { "mob": "escorpion", "x": 15, "z": 12 },
+    { "mob": "golem", "x": 12, "z": -14 }
+  ]
+}

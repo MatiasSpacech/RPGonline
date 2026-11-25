@@ -129,9 +129,11 @@ func TestCharacterLifecycle(t *testing.T) {
 		t.Fatalf("stats cargados = %+v", loaded)
 	}
 
-	// Guardar posición y verificar que persiste.
+	// Guardar posición y progreso, y verificar que persisten.
 	if err := s.SaveCharacterState(ctx, model.CharacterState{
 		CharacterID: loaded.ID, MapID: "llanuras", X: 12.5, Y: 0, Z: -3.25,
+		Level: 3, XP: 42, Str: 33, Agi: 21, Vit: 30, Ene: 12,
+		StatPoints: 2, Gold: 123,
 	}); err != nil {
 		t.Fatalf("SaveCharacterState: %v", err)
 	}
@@ -141,6 +143,9 @@ func TestCharacterLifecycle(t *testing.T) {
 	}
 	if reloaded.X != 12.5 || reloaded.Z != -3.25 {
 		t.Fatalf("posición guardada = (%v, %v)", reloaded.X, reloaded.Z)
+	}
+	if reloaded.Level != 3 || reloaded.XP != 42 || reloaded.Str != 33 || reloaded.StatPoints != 2 || reloaded.Gold != 123 {
+		t.Fatalf("progreso guardado = %+v", reloaded)
 	}
 
 	if err := s.DeleteCharacter(ctx, user.ID, chars[0].ID); err != nil {

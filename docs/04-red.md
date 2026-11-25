@@ -29,7 +29,7 @@ Sobre JSON mínimo:
 
 ## 3. Catálogo de mensajes MVP
 
-> **Implementado hasta F2**: `register`, `login`, `resume`, `create_char`, `delete_char`, `select_char`, `move_req`, `ping` y sus respuestas. El resto del catálogo es el objetivo del MVP.
+> **Implementado hasta F3**: auth/lobby (`register`, `login`, `resume`, `create_char`, `delete_char`, `select_char`), movimiento (`move_req`), combate (`attack`, `potion`, `alloc_stat`, `ping`) y sus respuestas. El resto del catálogo es el objetivo del MVP.
 
 ### C → S (acciones: el cliente *pide*)
 
@@ -42,16 +42,18 @@ Sobre JSON mínimo:
 | `delete_char` | { char_id } | borra un personaje propio |
 | `select_char` | { char_id } | entra al mundo → `welcome` |
 | `move_req` | { x, y, z } | punto destino del clic (ver §5) |
-| `attack` | { target } | inicia/detiene auto-ataque (0 = detener) |
-| `skill` | { skillId, target } | target opcional para heals/self |
-| `pickup` | { dropId } | recoger drop del suelo |
-| `equip` / `unequip` | { itemId, slot? } | |
-| `inv_move` | { itemId, slotX, slotY } | reordenar grilla |
-| `use_item` | { itemId } | pociones |
-| `enhance` | { itemId } | intento de mejora +N (consume materiales del inventario) |
-| `chat` | { ch, msg, to? } | ch ∈ global, party, whisper |
-| `party_inv` / `party_accept` | { charId } | |
-| `portal` | { portalId } | cambio de mapa |
+| `attack` | { target } | fija el mob del auto-ataque (0 = detener) |
+| `potion` | { kind } | "hp" o "mp"; cooldown 3 s |
+| `alloc_stat` | { stat } | "str" / "agi" / "vit" / "ene"; gasta 1 punto |
+| `skill` | { skillId, target } | target opcional para heals/self (F5) |
+| `pickup` | { dropId } | recoger drop del suelo (F4) |
+| `equip` / `unequip` | { itemId, slot? } | (F4) |
+| `inv_move` | { itemId, slotX, slotY } | reordenar grilla (F4) |
+| `use_item` | { itemId } | pociones de inventario (F4) |
+| `enhance` | { itemId } | intento de mejora +N (F4) |
+| `chat` | { ch, msg, to? } | ch ∈ global, party, whisper (F6) |
+| `party_inv` / `party_accept` | { charId } | (F6) |
+| `portal` | { portalId } | cambio de mapa (F5) |
 | `ping` | {} | cada 2 s; el server responde `pong` (timeout 20 s) |
 
 ### S → C (estado: el servidor *informa*)
@@ -63,9 +65,10 @@ Sobre JSON mínimo:
 | `welcome` | { self, character, map, tick_rate, snapshot_rate } | datos para entrar al mundo |
 | `snapshot` | { tick, ents } | ver §4 |
 | `pong` | { server_time_ms } | respuesta al ping (RTT) |
-| `self_state` | { hp, mp, xp, level, gold, stats... } | cambia poco → evento barato |
-| `dmg` | { src, dst, amount, crit, kind } | para números flotantes/anim (visual only) |
-| `mob_dead` | { id, xp, drops } | feedback de kill |
+| `self_state` | { hp, hp_max, mp, mp_max, xp, xp_next, level, str, agi, vit, ene, stat_points, hp_potions, mp_potions } | HUD: se envía al entrar y cuando cambia algo |
+| `dmg` | { src, dst, amount, crit, kind } | números flotantes; kind ∈ out/in/dodge |
+| `mob_dead` | { id, xp, killer } | feedback de kill + XP ganado |
+| `death` | { xp_lost } | moriste; después llega `teleport` |
 | `drop_spawn` / `drop_gone` / `drop_pickup` | { id, pos, tmpl, rarity } / { id } / { id, by } | |
 | `inv` | { items, gold } | inventario completo (simple) al cambiar algo |
 | `enhance_result` | { itemId, level, ok, destroyed? } | momento de tensión |
@@ -84,8 +87,10 @@ Sobre JSON mínimo:
 { "t": "snapshot", "d": {
   "tick": 104,
   "ents": [
-    { "id": 412, "k": "mob",  "tmpl": "skeleton", "x": 12.3, "y": 0, "z": -45.1, "r": 1.2, "hp%": 64, "st": "attack", "tgt": 7 },
-    { "id": 7,   "k": "pc",   "x": 15.0, "y": 0, "z": -44.0, "r": 2.3, "hp%": 100, "name": "Kaen", "anim": "run" }
+    { "id": 1000001, "k": "mob", "tmpl": "lobo", "name": "Lobo flaco", "level": 3,
+      "x": 12.3, "y": 0, "z": -45.1, "r": 1.2, "hp": 35, "hp_max": 55, "anim": "chase" },
+    { "id": 7, "k": "pc", "name": "Kaen",
+      "x": 15.0, "y": 0, "z": -44.0, "r": 2.3, "anim": "attack" }
   ]
 }}
 ```

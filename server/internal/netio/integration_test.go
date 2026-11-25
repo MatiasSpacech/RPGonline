@@ -54,7 +54,7 @@ func (c authedClient) selectCharacter(t *testing.T, characterID int64) protocol.
 func TestTwoClientsSeeEachOther(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	gameWorld := world.New(log, nil)
+	gameWorld := world.New(log, nil, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	go gameWorld.Run(ctx)

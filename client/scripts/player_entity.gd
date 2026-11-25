@@ -66,6 +66,17 @@ func push_state(pos: Vector3, t_ms: int, anim: String) -> void:
 	_curr_t = t_ms
 
 
+## Reposiciona sin interpolar (respawn/teleport).
+func snap_to(pos: Vector3) -> void:
+	var now := Time.get_ticks_msec()
+	_prev_pos = pos
+	_curr_pos = pos
+	_prev_t = now
+	_curr_t = now
+	_has_state = true
+	position = pos
+
+
 ## Renderiza el estado correspondiente a (now - delay): interpolación con
 ## ~100 ms de buffer para suavizar el jitter de la red.
 func render_at(now_ms: int, delay_ms: int) -> void:

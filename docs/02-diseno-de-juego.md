@@ -63,7 +63,8 @@ Regla de oro: **el cliente solo muestra el resultado**, nunca calcula nada de es
 
 ## 3. Progresión de niveles
 
-- Nivel máx MVP: **30**. XP para nivel `n+1`: `xp(n) = round(60 * n^1.7)`.
+- Nivel máx MVP: **30**. XP para pasar del nivel `n` al `n+1`: `xp(n) = round(60 * n^1.7)`.
+- **Implementación F3**: la BD guarda el XP como progreso *dentro* del nivel (no acumulado). La tabla de abajo es una referencia acumulada aproximada.
 - Kill de un mob otorga su XP *atenuada* si el jugador lo supera por ≥5 niveles (`factor = 0.3^((nivel_jugador - nivel_mob - 5) / 5)`, piso 0.1).
 - Muerte: **pierde el 3% del XP de tu nivel actual** (nunca baja de nivel, nunca pierde ítems en MVP).
 
