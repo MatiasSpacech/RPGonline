@@ -12,15 +12,17 @@ import (
 	"github.com/gorilla/websocket"
 
 	"munext/server/internal/protocol"
+	"munext/server/internal/world"
 )
 
-func newTestServer(t *testing.T) (*Server, *httptest.Server) {
+func newTestServer(t *testing.T) (*Server, *httptest.Server, chan world.Command) {
 	t.Helper()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	s := New(log)
+	inbox := make(chan world.Command, 16)
+	s := New(log, inbox)
 	ts := httptest.NewServer(s.Handler())
 	t.Cleanup(ts.Close)
-	return s, ts
+	return s, ts, inbox
 }
 
 func dial(t *testing.T, ts *httptest.Server) *websocket.Conn {
@@ -35,7 +37,7 @@ func dial(t *testing.T, ts *httptest.Server) *websocket.Conn {
 }
 
 func TestPingPong(t *testing.T) {
-	_, ts := newTestServer(t)
+	_, ts, _ := newTestServer(t)
 	conn := dial(t, ts)
 
 	ping, err := protocol.Encode("ping", map[string]string{"client": "test"})
@@ -72,7 +74,7 @@ func TestPingPong(t *testing.T) {
 }
 
 func TestInvalidMessageClosesConnection(t *testing.T) {
-	_, ts := newTestServer(t)
+	_, ts, _ := newTestServer(t)
 	conn := dial(t, ts)
 
 	if err := conn.WriteMessage(websocket.TextMessage, []byte("esto no es json")); err != nil {
@@ -85,8 +87,101 @@ func TestInvalidMessageClosesConnection(t *testing.T) {
 	}
 }
 
+func TestLoginAndMoveAreForwardedToWorld(t *testing.T) {
+	_, ts, inbox := newTestServer(t)
+	conn := dial(t, ts)
+
+	login, err := protocol.Encode("login", protocol.Login{User: "dev"})
+	if err != nil {
+		t.Fatalf("Encode login: %v", err)
+	}
+	if err := conn.WriteMessage(websocket.TextMessage, login); err != nil {
+		t.Fatalf("write login: %v", err)
+	}
+
+	select {
+	case cmd := <-inbox:
+		join, ok := cmd.(world.Join)
+		if !ok {
+			t.Fatalf("comando = %T, quería world.Join", cmd)
+		}
+		if join.User != "dev" {
+			t.Fatalf("user = %q, quería dev", join.User)
+		}
+		if join.SessionID <= 0 {
+			t.Fatalf("session id = %d, quería > 0", join.SessionID)
+		}
+		if join.Out == nil {
+			t.Fatal("join.Out no debería ser nil")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no llegó world.Join al mundo")
+	}
+
+	move, err := protocol.Encode("move_req", protocol.MoveReq{X: 4, Z: -2})
+	if err != nil {
+		t.Fatalf("Encode move: %v", err)
+	}
+	if err := conn.WriteMessage(websocket.TextMessage, move); err != nil {
+		t.Fatalf("write move: %v", err)
+	}
+
+	select {
+	case cmd := <-inbox:
+		m, ok := cmd.(world.Move)
+		if !ok {
+			t.Fatalf("comando = %T, quería world.Move", cmd)
+		}
+		if m.X != 4 || m.Z != -2 {
+			t.Fatalf("destino = (%v, %v), quería (4, -2)", m.X, m.Z)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no llegó world.Move al mundo")
+	}
+}
+
+func TestLogoutSendsLeave(t *testing.T) {
+	_, ts, inbox := newTestServer(t)
+	conn := dial(t, ts)
+
+	login, err := protocol.Encode("login", protocol.Login{User: "dev"})
+	if err != nil {
+		t.Fatalf("Encode login: %v", err)
+	}
+	if err := conn.WriteMessage(websocket.TextMessage, login); err != nil {
+		t.Fatalf("write login: %v", err)
+	}
+
+	var sessionID int64
+	select {
+	case cmd := <-inbox:
+		join, ok := cmd.(world.Join)
+		if !ok {
+			t.Fatalf("comando = %T, quería world.Join", cmd)
+		}
+		sessionID = join.SessionID
+	case <-time.After(2 * time.Second):
+		t.Fatal("no llegó world.Join")
+	}
+
+	_ = conn.Close()
+
+	select {
+	case cmd := <-inbox:
+		leave, ok := cmd.(world.Leave)
+		if !ok {
+			t.Fatalf("comando = %T, quería world.Leave", cmd)
+		}
+		if leave.SessionID != sessionID {
+			t.Fatalf("leave.session = %d, quería %d", leave.SessionID, sessionID)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no llegó world.Leave al cerrar la conexión")
+	}
+}
+
 func TestCloseDisconnectsClients(t *testing.T) {
-	s, ts := newTestServer(t)
+	s, ts, _ := newTestServer(t)
 	conn := dial(t, ts)
 
 	// Un ping/pong primero garantiza que el handler ya registró la conexión.

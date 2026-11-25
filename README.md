@@ -2,7 +2,7 @@
 
 MMORPG 3D de acción **inspirado en MU Online** (dark fantasy, grind satisfactorio, mejora de ítems +N, click-to-move) pero con nombres, arte y diseño propios. Online a escala pequeña: **8–64 jugadores concurrentes por servidor**, con arquitectura que puede crecer después.
 
-> Estado: **F0 completado** · cliente Godot ⇄ servidor Go por WebSocket (ping/pong, caída y reconexión automática verificados). Siguiente: **F1 — caminar juntos**.
+> Estado: **F1 completado** · game loop autoritativo a 20 Hz, snapshots a 10 Hz, login de dev, click-to-move e interpolación: dos clientes se ven moverse. Siguiente: **F2 — persistencia**.
 
 ## Stack decidido
 
@@ -40,28 +40,34 @@ MMORPG 3D de acción **inspirado en MU Online** (dark fantasy, grind satisfactor
 7. **F6** – Chat, party, muerte, balance
 8. **F7** – Despliegue y playtest con amigos
 
-## Correr F0 (hola red)
+## Correr el juego (F1 — caminar juntos)
 
-Requisitos: Go 1.27+ y Godot 4.7+ (ambos instalados en `~/.local` en esta máquina; `~/.bashrc` ya agrega `~/.local/go/bin` y `~/.local/bin` al PATH — abrí una terminal nueva o `source ~/.bashrc`).
+Requisitos: Go 1.27+ y Godot 4.7+ (instalados en `~/.local`; `~/.bashrc` ya agrega `~/.local/go/bin` y `~/.local/bin` al PATH — abrí una terminal nueva o `source ~/.bashrc`).
 
 ```bash
-# 1. Servidor (desde la raíz del repo)
-cd server && go run ./cmd/munext
-#    escucha en ws://127.0.0.1:8080/ws  ·  healthcheck: http://127.0.0.1:8080/healthz
+# Terminal 1 — servidor autoritativo
+make server          # ws://127.0.0.1:8080/ws · healthz: :8080/healthz
 
-# 2. Cliente (en otra terminal)
-godot --path client
-#    o abrí client/project.godot en el editor y presioná F5
+# Terminal 2 — dos clientes (dos ventanas; ambas usan "dev")
+godot --path client &
+godot --path client &
 ```
 
-Qué vas a ver: el cliente muestra `Conectado ✓ · pong #N · RTT X ms` y la consola del servidor registra `cliente conectado`. Si cerrás el servidor, el cliente muestra el error y reintenta solo cada 3 s.
+Qué vas a ver:
+
+- Una cápsula dorada (vos) y otra de color con su nombre flotante. El server reparte nombres únicos: el segundo `dev` pasa a `dev-2`.
+- **Click izquierdo en el suelo** → tu personaje camina hasta el marcador verde.
+- El otro jugador se mueve interpolado (buffer de ~100 ms sobre snapshots de 10 Hz).
+- HUD: tick del servidor, jugadores conectados y RTT.
+- Si cerrás el servidor, ambos clientes avisan y reintentan solos cada 3 s.
 
 ```bash
-# Tests del servidor (protocolo + integración ping/pong)
+# Tests del servidor: protocolo, mundo y un test de integración con dos
+# clientes WebSocket reales verificando que el movimiento se replica.
 cd server && go test ./...
 ```
 
-Atajos equivalentes: `make server`, `make client`, `make test`.
+Atajos: `make server`, `make client`, `make test`.
 
-> **Docker/Postgres**: se instalan en F2 (persistencia). No son necesarios para F0.
+> **Docker/Postgres**: se suman en F2 (cuentas y personajes persistentes).
 

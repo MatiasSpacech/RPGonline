@@ -36,12 +36,12 @@ El orden no es arbitrario: cada fase construye sobre la anterior y **cada una de
 
 **Objetivo**: el "hello world" del netcode — dos clientes se ven mutuamente.
 
-- [ ] Protocolo mínimo: `login` (user fijo "dev"), `move_req`, `snapshot` ([04-red](04-red.md) §3–4).
-- [ ] Game loop 20 Hz + snapshots 10 Hz por mapa único, con entidades PCs.
-- [ ] Cliente: click-to-move sobre plano con navmesh simple, interpolación básica de otros jugadores (lerp).
-- [ ] Volver a conectar tras caída del server (reconexión manual, sin estado).
+- [x] Protocolo F1: `login` (nombre "dev"), `move_req`, `welcome`, `snapshot` ([04-red](04-red.md) §3–4).
+- [x] Game loop autoritativo 20 Hz + snapshots 10 Hz, un mapa plano con entidades de jugador.
+- [x] Cliente: click-to-move por raycast al suelo, interpolación entre snapshots (~100 ms), nombres y colores por jugador.
+- [x] Reconexión automática tras caída del server (heredada de F0) + re-login al reconectar.
 
-**Criterio de aceptación**: dos ventanas de Godot, cada una ve a la cápsula ajena moverse con fluidez aceptable (sin "teleports" visibles a simple vista).
+**Criterio de aceptación**: ✅ verificado con dos clientes headless viéndose mutuamente y test de integración Go con movimiento replicado por snapshot + `-race` limpio. Falta tu prueba interactiva con dos ventanas.
 
 ## F2 — Persistencia: cuentas y personajes (2–3 sem)
 

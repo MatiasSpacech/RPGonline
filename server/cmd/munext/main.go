@@ -1,4 +1,4 @@
-// Command munext arranca el servidor de juego (F0: ping/pong por WebSocket).
+// Command munext arranca el servidor de juego autoritativo.
 package main
 
 import (
@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"munext/server/internal/netio"
+	"munext/server/internal/world"
 )
 
 func main() {
@@ -27,7 +28,19 @@ func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
 	slog.SetDefault(logger)
 
-	gameServer := netio.New(logger)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// El mundo corre en su propia goroutine (game loop autoritativo). Las
+	// conexiones le envían comandos por canal (ver docs/03-arquitectura.md).
+	gameWorld := world.New(logger)
+	worldDone := make(chan struct{})
+	go func() {
+		defer close(worldDone)
+		gameWorld.Run(ctx)
+	}()
+
+	gameServer := netio.New(logger, gameWorld.Inbox())
 	srv := &http.Server{
 		Addr:              *addr,
 		Handler:           gameServer.Handler(),
@@ -38,13 +51,10 @@ func main() {
 		logger.Info("servidor escuchando", "addr", *addr, "ws", "ws://"+*addr+"/ws")
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Error("el servidor terminó con error", "err", err)
-			os.Exit(1)
+			stop()
 		}
 	}()
 
-	// Apagado limpio: Ctrl+C o SIGTERM cierran las conexiones en curso.
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	<-ctx.Done()
 
 	logger.Info("apagando servidor...")
@@ -54,5 +64,11 @@ func main() {
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		logger.Error("apagado forzado", "err", err)
+	}
+
+	select {
+	case <-worldDone:
+	case <-time.After(2 * time.Second):
+		logger.Warn("el mundo no terminó a tiempo")
 	}
 }

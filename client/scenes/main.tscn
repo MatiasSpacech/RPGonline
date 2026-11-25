@@ -1,6 +1,7 @@
-[gd_scene load_steps=7 format=3]
+[gd_scene load_steps=10 format=3]
 
-[ext_resource type="Script" path="res://scripts/net_client.gd" id="1_net"]
+[ext_resource type="Script" path="res://scripts/main.gd" id="1_main"]
+[ext_resource type="Script" path="res://scripts/net_client.gd" id="2_net"]
 
 [sub_resource type="Environment" id="Environment_1"]
 background_mode = 1
@@ -10,22 +11,36 @@ ambient_light_color = Color(0.65, 0.68, 0.75, 1)
 ambient_light_energy = 0.7
 
 [sub_resource type="StandardMaterial3D" id="MatGround"]
-albedo_color = Color(0.18, 0.2, 0.23, 1)
+albedo_color = Color(0.16, 0.18, 0.21, 1)
 roughness = 1.0
 
 [sub_resource type="PlaneMesh" id="MeshGround"]
-size = Vector2(30, 30)
+size = Vector2(40, 40)
 material = SubResource("MatGround")
 
-[sub_resource type="StandardMaterial3D" id="MatPlayer"]
-albedo_color = Color(0.78, 0.56, 0.25, 1)
-roughness = 0.8
+[sub_resource type="StandardMaterial3D" id="MatRock"]
+albedo_color = Color(0.24, 0.25, 0.29, 1)
+roughness = 0.95
 
-[sub_resource type="CapsuleMesh" id="MeshPlayer"]
-material = SubResource("MatPlayer")
+[sub_resource type="BoxMesh" id="MeshBox"]
+material = SubResource("MatRock")
+
+[sub_resource type="StandardMaterial3D" id="MatMarker"]
+transparency = 1
+shading_mode = 0
+albedo_color = Color(0.3, 1, 0.6, 0.55)
+emission_enabled = true
+emission = Color(0.2, 0.9, 0.5, 1)
+emission_energy_multiplier = 1.5
+
+[sub_resource type="CylinderMesh" id="MeshMarker"]
+top_radius = 0.55
+bottom_radius = 0.55
+height = 0.04
+material = SubResource("MatMarker")
 
 [node name="Main" type="Node3D"]
-script = ExtResource("1_net")
+script = ExtResource("1_main")
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = SubResource("Environment_1")
@@ -37,31 +52,85 @@ light_energy = 1.2
 [node name="Ground" type="MeshInstance3D" parent="."]
 mesh = SubResource("MeshGround")
 
-[node name="Player" type="MeshInstance3D" parent="."]
-position = Vector3(0, 1, 0)
-mesh = SubResource("MeshPlayer")
+[node name="Landmarks" type="Node3D" parent="."]
+
+[node name="Obelisk" type="MeshInstance3D" parent="Landmarks"]
+position = Vector3(-8, 2.5, -6)
+rotation_degrees = Vector3(0, 20, 0)
+scale = Vector3(0.8, 2.5, 0.8)
+mesh = SubResource("MeshBox")
+
+[node name="Crate" type="MeshInstance3D" parent="Landmarks"]
+position = Vector3(6, 1, -4)
+rotation_degrees = Vector3(0, 35, 0)
+mesh = SubResource("MeshBox")
+
+[node name="Wall" type="MeshInstance3D" parent="Landmarks"]
+position = Vector3(9, 1.5, 6)
+scale = Vector3(2.5, 1.5, 0.4)
+mesh = SubResource("MeshBox")
+
+[node name="Ruin" type="MeshInstance3D" parent="Landmarks"]
+position = Vector3(-10, 1.25, 7)
+rotation_degrees = Vector3(0, 15, 0)
+scale = Vector3(1.6, 1.25, 1.6)
+mesh = SubResource("MeshBox")
+
+[node name="Rock" type="MeshInstance3D" parent="Landmarks"]
+position = Vector3(2, 0.6, 9)
+rotation_degrees = Vector3(0, 70, 0)
+scale = Vector3(1.4, 0.6, 1)
+mesh = SubResource("MeshBox")
+
+[node name="Pillar" type="MeshInstance3D" parent="Landmarks"]
+position = Vector3(-3, 2, -12)
+scale = Vector3(0.7, 2, 0.7)
+mesh = SubResource("MeshBox")
+
+[node name="Entities" type="Node3D" parent="."]
 
 [node name="Camera3D" type="Camera3D" parent="."]
-position = Vector3(0, 4, 7)
-rotation_degrees = Vector3(-27, 0, 0)
+position = Vector3(0, 8, 10)
+rotation_degrees = Vector3(-38, 0, 0)
 current = true
+
+[node name="NetClient" type="Node" parent="."]
+script = ExtResource("2_net")
+
+[node name="MoveMarker" type="MeshInstance3D" parent="."]
+visible = false
+position = Vector3(0, 0.03, 0)
+cast_shadow = 0
+mesh = SubResource("MeshMarker")
 
 [node name="UI" type="CanvasLayer" parent="."]
 
 [node name="StatusLabel" type="Label" parent="UI"]
 offset_left = 24.0
-offset_top = 20.0
-offset_right = 900.0
-offset_bottom = 70.0
+offset_top = 18.0
+offset_right = 1000.0
+offset_bottom = 64.0
+mouse_filter = 2
 theme_override_colors/font_color = Color(0.85, 0.9, 1, 1)
 theme_override_font_sizes/font_size = 20
-text = "Iniciando..."
+text = "Conectando..."
 
-[node name="HintLabel" type="Label" parent="UI"]
+[node name="InfoLabel" type="Label" parent="UI"]
 offset_left = 24.0
-offset_top = 74.0
-offset_right = 900.0
-offset_bottom = 110.0
-theme_override_colors/font_color = Color(0.6, 0.65, 0.75, 1)
+offset_top = 64.0
+offset_right = 1000.0
+offset_bottom = 92.0
+mouse_filter = 2
+theme_override_colors/font_color = Color(0.65, 0.72, 0.85, 1)
+theme_override_font_sizes/font_size = 15
+text = ""
+
+[node name="HelpLabel" type="Label" parent="UI"]
+offset_left = 24.0
+offset_top = 664.0
+offset_right = 1100.0
+offset_bottom = 700.0
+mouse_filter = 2
+theme_override_colors/font_color = Color(0.55, 0.6, 0.72, 1)
 theme_override_font_sizes/font_size = 14
-text = "F0 · Hola red: ping cada 2 s al servidor Go vía WebSocket."
+text = "F1 · Click izquierdo para moverte. El servidor manda: snapshots a 10 Hz + interpolación de 100 ms."
