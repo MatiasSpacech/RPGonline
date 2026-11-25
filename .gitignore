@@ -1,0 +1,23 @@
+# --- Go ---
+server/munext
+server/bin/
+*.test
+*.out
+
+# --- Godot ---
+client/.godot/
+client/.import/
+client/export/
+client/build/
+
+# --- Entorno / secretos ---
+.env
+*.env
+!example.env
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
