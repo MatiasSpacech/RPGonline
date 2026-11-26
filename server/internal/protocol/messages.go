@@ -1,6 +1,9 @@
 package protocol
 
-import "munext/server/internal/model"
+import (
+	"munext/server/internal/gamedata"
+	"munext/server/internal/model"
+)
 
 // Mensajes de F2 (cuentas/lobby) además de los de F1. El catálogo completo
 // está en docs/04-red.md.
@@ -58,18 +61,24 @@ type MoveReq struct {
 
 // Entity es el estado visible de una entidad en una snapshot.
 type Entity struct {
-	ID    int64   `json:"id"`
-	Kind  string  `json:"k"`
-	Tmpl  string  `json:"tmpl,omitempty"`
-	Name  string  `json:"name,omitempty"`
-	Level int     `json:"level,omitempty"`
-	X     float64 `json:"x"`
-	Y     float64 `json:"y"`
-	Z     float64 `json:"z"`
-	Rot   float64 `json:"r"`
-	Anim  string  `json:"anim,omitempty"`
-	HP    int     `json:"hp,omitempty"`
-	HPMax int     `json:"hp_max,omitempty"`
+	ID     int64   `json:"id"`
+	Kind   string  `json:"k"`
+	Tmpl   string  `json:"tmpl,omitempty"`
+	Name   string  `json:"name,omitempty"`
+	Level  int     `json:"level,omitempty"`
+	Rarity string  `json:"rarity,omitempty"`
+	X      float64 `json:"x"`
+	Y      float64 `json:"y"`
+	Z      float64 `json:"z"`
+	Rot    float64 `json:"r"`
+	Anim   string  `json:"anim,omitempty"`
+	HP     int     `json:"hp,omitempty"`
+	HPMax  int     `json:"hp_max,omitempty"`
+}
+
+// GameData es el contenido estático que el cliente necesita para UI (F4).
+type GameData struct {
+	Items []gamedata.ItemTemplate `json:"items"`
 }
 
 // Welcome es la primera respuesta tras seleccionar un personaje.
@@ -79,6 +88,7 @@ type Welcome struct {
 	TickRate     int                    `json:"tick_rate"`
 	SnapshotRate int                    `json:"snapshot_rate"`
 	Character    model.CharacterSummary `json:"character"`
+	GameData     GameData               `json:"game_data"`
 }
 
 // Snapshot es el estado autoritativo del mapa en un tick.

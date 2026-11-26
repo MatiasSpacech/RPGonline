@@ -29,7 +29,7 @@ Sobre JSON mínimo:
 
 ## 3. Catálogo de mensajes MVP
 
-> **Implementado hasta F3**: auth/lobby (`register`, `login`, `resume`, `create_char`, `delete_char`, `select_char`), movimiento (`move_req`), combate (`attack`, `potion`, `alloc_stat`, `ping`) y sus respuestas. El resto del catálogo es el objetivo del MVP.
+> **Implementado hasta F4**: auth/lobby, movimiento, combate, stats, botín/inventario/equipo/tienda y mejora +N. El resto del catálogo es el objetivo del MVP.
 
 ### C → S (acciones: el cliente *pide*)
 
@@ -43,14 +43,17 @@ Sobre JSON mínimo:
 | `select_char` | { char_id } | entra al mundo → `welcome` |
 | `move_req` | { x, y, z } | punto destino del clic (ver §5) |
 | `attack` | { target } | fija el mob del auto-ataque (0 = detener) |
-| `potion` | { kind } | "hp" o "mp"; cooldown 3 s |
 | `alloc_stat` | { stat } | "str" / "agi" / "vit" / "ene"; gasta 1 punto |
+| `use_item` | { item_id } | usa una poción del inventario |
+| `potion` | { kind } | atajo de HUD: usa la primera poción hp/mp (cooldown 3 s) |
+| `pickup` | { id } | recoge un drop del suelo (≤3 m) |
+| `equip` | { item_id } | equipa (valida clase/requisitos) |
+| `unequip` | { slot } | weapon/helm/chest/gloves/boots/shield |
+| `inv_move` | { item_id, x, y } | mueve/swap en la grilla 8×5 |
+| `enhance` | { item_id } | intento de mejora +N (consume núcleo + oro) |
+| `shop_buy` | { tmpl, qty } | compra consumibles |
+| `shop_sell` | { item_id } | vende un ítem del inventario |
 | `skill` | { skillId, target } | target opcional para heals/self (F5) |
-| `pickup` | { dropId } | recoger drop del suelo (F4) |
-| `equip` / `unequip` | { itemId, slot? } | (F4) |
-| `inv_move` | { itemId, slotX, slotY } | reordenar grilla (F4) |
-| `use_item` | { itemId } | pociones de inventario (F4) |
-| `enhance` | { itemId } | intento de mejora +N (F4) |
 | `chat` | { ch, msg, to? } | ch ∈ global, party, whisper (F6) |
 | `party_inv` / `party_accept` | { charId } | (F6) |
 | `portal` | { portalId } | cambio de mapa (F5) |
@@ -62,20 +65,19 @@ Sobre JSON mínimo:
 |---|---|---|
 | `login_ok` | { token, user, chars } | token para `resume` + lista de personajes |
 | `char_created` / `char_deleted` | { char } / { char_id } | actualizan el lobby |
-| `welcome` | { self, character, map, tick_rate, snapshot_rate } | datos para entrar al mundo |
-| `snapshot` | { tick, ents } | ver §4 |
+| `welcome` | { self, character, map, tick_rate, snapshot_rate, game_data } | `game_data.items` trae las plantillas de ítems |
+| `snapshot` | { tick, ents } | ver §4 (incluye drops) |
 | `pong` | { server_time_ms } | respuesta al ping (RTT) |
-| `self_state` | { hp, hp_max, mp, mp_max, xp, xp_next, level, str, agi, vit, ene, stat_points, hp_potions, mp_potions } | HUD: se envía al entrar y cuando cambia algo |
+| `self_state` | { hp, hp_max, mp, mp_max, xp, xp_next, level, str, agi, vit, ene, stat_points, hp_potions, mp_potions, attack_min, attack_max, defense, attack_interval_ms } | HUD: al entrar y cuando cambia algo |
 | `dmg` | { src, dst, amount, crit, kind } | números flotantes; kind ∈ out/in/dodge |
-| `mob_dead` | { id, xp, killer } | feedback de kill + XP ganado |
+| `mob_dead` | { id, xp, gold, killer } | feedback de kill + XP/oro ganado |
 | `death` | { xp_lost } | moriste; después llega `teleport` |
-| `drop_spawn` / `drop_gone` / `drop_pickup` | { id, pos, tmpl, rarity } / { id } / { id, by } | |
-| `inv` | { items, gold } | inventario completo (simple) al cambiar algo |
-| `enhance_result` | { itemId, level, ok, destroyed? } | momento de tensión |
-| `chat` | { ch, from, msg } | |
-| `party_state` | { members } | al unirse/salirse |
-| `levelup` | { charId, level } | visual fanfarria |
-| `teleport` | { map, x, y, z, ents } | al cruzar portal o morir |
+| `inventory` | { gold, items } | estado completo del inventario (incluye equipados) |
+| `enhance_result` | { item_id, success, new_enhance, destroyed } | momento de tensión |
+| `chat` | { ch, from, msg } | (F6) |
+| `party_state` | { members } | (F6) |
+| `levelup` | { level, stat_points } | visual fanfarria |
+| `teleport` | { map, x, y, z } | respawn |
 | `err` | { code, msg } | errores de auth/lobby/mundo; logueado server-side |
 
 ## 4. Sincronización de entidades
@@ -90,12 +92,15 @@ Sobre JSON mínimo:
     { "id": 1000001, "k": "mob", "tmpl": "lobo", "name": "Lobo flaco", "level": 3,
       "x": 12.3, "y": 0, "z": -45.1, "r": 1.2, "hp": 35, "hp_max": 55, "anim": "chase" },
     { "id": 7, "k": "pc", "name": "Kaen",
-      "x": 15.0, "y": 0, "z": -44.0, "r": 2.3, "anim": "attack" }
+      "x": 15.0, "y": 0, "z": -44.0, "r": 2.3, "anim": "attack" },
+    { "id": 901234, "k": "drop", "tmpl": "sword_iron", "name": "Espada de hierro",
+      "rarity": "rare", "x": 13.1, "y": 0, "z": -44.2 }
   ]
 }}
 ```
 
-- `id`: entero asignado por el servidor. `k`: kind. `r`: rotación Y. `st`: estado para animación (idle/run/attack/dead). Solo `hp%` (no HP exacto de otros: visual).
+- `id`: entero asignado por el servidor. `k`: pc/mob/drop. `r`: rotación Y. `anim`: idle/run/chase/attack. `hp`/`hp_max` solo para mobs; `rarity` solo para drops.
+- Los drops viven en el snapshots (no hay mensajes spawn/gone separados) y expiran a los 90 s.
 - **Interpolación del cliente**: mantener un buffer de ~100 ms de snapshots; renderizar entidades interpoladas entre las dos últimas posiciones conocidas. Con 10 Hz de snapshots la respuesta visual es fluida aunque el estado llegue "a saltos".
 - **Eventos puntuales** (`dmg`, `drop_spawn`, `enhance_result`...) viajan como mensajes separados; son "efímeros": si se pierdan uno, la snapshot siguiente corrige el estado real.
 

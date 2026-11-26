@@ -18,6 +18,8 @@ signal mob_dead_received(data: Dictionary)
 signal death_received(data: Dictionary)
 signal levelup_received(data: Dictionary)
 signal teleport_received(data: Dictionary)
+signal inventory_received(data: Dictionary)
+signal enhance_result_received(data: Dictionary)
 
 enum State { DISCONNECTED, CONNECTING, CONNECTED }
 
@@ -74,6 +76,38 @@ func use_potion(kind: String) -> void:
 
 func alloc_stat(stat: String) -> void:
 	_send({"t": "alloc_stat", "d": {"stat": stat}})
+
+
+func pickup(drop_id: int) -> void:
+	_send({"t": "pickup", "d": {"id": drop_id}})
+
+
+func equip_item(item_id: int) -> void:
+	_send({"t": "equip", "d": {"item_id": item_id}})
+
+
+func unequip_item(slot: String) -> void:
+	_send({"t": "unequip", "d": {"slot": slot}})
+
+
+func use_item(item_id: int) -> void:
+	_send({"t": "use_item", "d": {"item_id": item_id}})
+
+
+func enhance_item(item_id: int) -> void:
+	_send({"t": "enhance", "d": {"item_id": item_id}})
+
+
+func shop_buy(tmpl: String, qty: int = 1) -> void:
+	_send({"t": "shop_buy", "d": {"tmpl": tmpl, "qty": qty}})
+
+
+func shop_sell(item_id: int) -> void:
+	_send({"t": "shop_sell", "d": {"item_id": item_id}})
+
+
+func move_item(item_id: int, x: int, y: int) -> void:
+	_send({"t": "inv_move", "d": {"item_id": item_id, "x": x, "y": y}})
 
 
 func _process(delta: float) -> void:
@@ -196,6 +230,10 @@ func _handle_packet(packet: PackedByteArray) -> void:
 			levelup_received.emit(d)
 		"teleport":
 			teleport_received.emit(d)
+		"inventory":
+			inventory_received.emit(d)
+		"enhance_result":
+			enhance_result_received.emit(d)
 		"err":
 			var code := str(d.get("code", "error"))
 			var message := str(d.get("msg", "Error del servidor"))

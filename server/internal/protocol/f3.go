@@ -33,6 +33,10 @@ type SelfState struct {
 	StatPoints int   `json:"stat_points"`
 	HPPotions  int   `json:"hp_potions"`
 	MPPotions  int   `json:"mp_potions"`
+	AttackMin  int   `json:"attack_min"`
+	AttackMax  int   `json:"attack_max"`
+	Defense    int   `json:"defense"`
+	IntervalMS int   `json:"attack_interval_ms"`
 }
 
 // Damage es un golpe (o esquiva) para números flotantes y feedback.
@@ -44,10 +48,11 @@ type Damage struct {
 	Kind   string `json:"kind"` // "out" | "in" | "dodge"
 }
 
-// MobDead informa la muerte de un mob y el XP otorgado.
+// MobDead informa la muerte de un mob, el XP y el oro otorgados.
 type MobDead struct {
 	ID     int64 `json:"id"`
 	XP     int64 `json:"xp"`
+	Gold   int64 `json:"gold"`
 	Killer int64 `json:"killer"`
 }
 

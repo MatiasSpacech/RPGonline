@@ -45,10 +45,11 @@ const (
 	regenIntervalTicks uint64 = TickRate
 	// potionCooldownTicks: 3 s entre pociones.
 	potionCooldownTicks uint64 = 3 * TickRate
-	// startingPotions es la cantidad inicial (y al revivir) de cada poción.
-	startingPotions = 5
-	// potionHealPercent cura el 40% del máximo.
-	potionHealPercent = 40
+	// Grilla de inventario 8x5 (GDD §5.4).
+	inventoryWidth  = 8
+	inventoryHeight = 5
+	// Los drops del suelo viven 90 s.
+	dropLifetimeTicks = 90 * TickRate
 )
 
 // Command es una acción que las conexiones envían al game loop.
@@ -123,8 +124,8 @@ type player struct {
 	HPMax, MPMax int
 	HP, MP       int
 
-	HPPotions, MPPotions int
-	NextPotionTick       uint64
+	Items          []model.Item
+	NextPotionTick uint64
 
 	X, Z             float64
 	TargetX, TargetZ float64
@@ -200,27 +201,33 @@ func (m *mob) entity() protocol.Entity {
 
 // World es el estado del mundo y su game loop.
 type World struct {
-	log      *slog.Logger
-	players  map[int64]*player // por SessionID
-	mobs     []*mob
-	mobsByID map[int64]*mob
-	mapID    string
-	inbox    chan Command
-	saveCh   chan<- model.CharacterState
-	tick     uint64
-	rng      *rand.Rand
+	log       *slog.Logger
+	players   map[int64]*player // por SessionID
+	mobs      []*mob
+	mobsByID  map[int64]*mob
+	drops     []*drop
+	dropsByID map[int64]*drop
+	items     map[string]gamedata.ItemTemplate
+	gameData  protocol.GameData
+	mapID     string
+	inbox     chan Command
+	saveCh    chan<- model.CharacterState
+	tick      uint64
+	rng       *rand.Rand
 }
 
 // New crea un mundo vacío. saveCh recibe los estados a persistir (nil = sin
 // persistencia, útil en tests). data puede ser nil: el mundo corre sin mobs.
 func New(log *slog.Logger, saveCh chan<- model.CharacterState, data *gamedata.Data) *World {
 	w := &World{
-		log:      log,
-		players:  make(map[int64]*player),
-		mobsByID: make(map[int64]*mob),
-		mapID:    DefaultMapID,
-		inbox:    make(chan Command, 256),
-		saveCh:   saveCh,
+		log:       log,
+		players:   make(map[int64]*player),
+		mobsByID:  make(map[int64]*mob),
+		dropsByID: make(map[int64]*drop),
+		mapID:     DefaultMapID,
+		inbox:     make(chan Command, 256),
+		saveCh:    saveCh,
+		gameData:  protocol.GameData{Items: make([]gamedata.ItemTemplate, 0)},
 		rng: rand.New(rand.NewPCG(
 			uint64(time.Now().UnixNano()),
 			0x9E3779B97F4A7C15,
@@ -229,6 +236,15 @@ func New(log *slog.Logger, saveCh chan<- model.CharacterState, data *gamedata.Da
 	if data != nil {
 		if data.MapID != "" {
 			w.mapID = data.MapID
+		}
+		w.items = data.Items
+		itemIDs := make([]string, 0, len(data.Items))
+		for id := range data.Items {
+			itemIDs = append(itemIDs, id)
+		}
+		slices.Sort(itemIDs)
+		for _, id := range itemIDs {
+			w.gameData.Items = append(w.gameData.Items, data.Items[id])
 		}
 		for i, spawn := range data.Spawns {
 			spec, ok := data.Mobs[spawn.Mob]
@@ -304,25 +320,23 @@ func (w *World) addPlayer(j Join) {
 
 	c := j.Character
 	p := &player{
-		ID:             c.ID,
-		SessionID:      j.SessionID,
-		Name:           c.Name,
-		Class:          c.Class,
-		Level:          c.Level,
-		XP:             c.XP,
-		Str:            c.Str,
-		Agi:            c.Agi,
-		Vit:            c.Vit,
-		Ene:            c.Ene,
-		StatPts:        c.StatPoints,
-		Gold:           c.Gold,
-		HPPotions:      startingPotions,
-		MPPotions:      startingPotions,
-		X:              c.X,
-		Z:              c.Z,
-		Anim:           "idle",
-		Out:            j.Out,
-		LastCombatTick: 0,
+		ID:        c.ID,
+		SessionID: j.SessionID,
+		Name:      c.Name,
+		Class:     c.Class,
+		Level:     c.Level,
+		XP:        c.XP,
+		Str:       c.Str,
+		Agi:       c.Agi,
+		Vit:       c.Vit,
+		Ene:       c.Ene,
+		StatPts:   c.StatPoints,
+		Gold:      c.Gold,
+		Items:     append([]model.Item{}, c.Items...),
+		X:         c.X,
+		Z:         c.Z,
+		Anim:      "idle",
+		Out:       j.Out,
 	}
 	p.recalcMax()
 	p.HP = p.HPMax
@@ -335,15 +349,18 @@ func (w *World) addPlayer(j Join) {
 		TickRate:     TickRate,
 		SnapshotRate: TickRate / SnapshotEvery,
 		Character:    model.CharacterSummary{ID: c.ID, Name: c.Name, Class: c.Class, Level: c.Level},
+		GameData:     w.gameData,
 	})
 	if err != nil {
 		w.log.Error("no se pudo codificar el welcome", "err", err)
 		return
 	}
 	w.send(p, welcome)
+	w.sendInventory(p)
 	w.sendSelfState(p)
 
-	w.log.Info("jugador entró al mundo", "id", p.ID, "name", p.Name, "session", p.SessionID, "level", p.Level)
+	w.log.Info("jugador entró al mundo", "id", p.ID, "name", p.Name, "session", p.SessionID,
+		"level", p.Level, "items", len(p.Items), "gold", p.Gold)
 }
 
 func (w *World) removePlayer(sessionID int64) {
@@ -391,38 +408,6 @@ func (w *World) setAttack(a Attack) {
 	p.Anim = "chase"
 }
 
-func (w *World) usePotion(c Potion) {
-	p, ok := w.players[c.SessionID]
-	if !ok || p.HP <= 0 {
-		return
-	}
-	if w.tick < p.NextPotionTick {
-		return
-	}
-
-	switch c.Kind {
-	case "hp":
-		if p.HPPotions <= 0 {
-			return
-		}
-		heal := max(1, p.HPMax*potionHealPercent/100)
-		p.HP = min(p.HPMax, p.HP+heal)
-		p.HPPotions--
-	case "mp":
-		if p.MPPotions <= 0 {
-			return
-		}
-		heal := max(1, p.MPMax*potionHealPercent/100)
-		p.MP = min(p.MPMax, p.MP+heal)
-		p.MPPotions--
-	default:
-		return
-	}
-
-	p.NextPotionTick = w.tick + potionCooldownTicks
-	w.sendSelfState(p)
-}
-
 func (w *World) allocStat(a AllocStat) {
 	p, ok := w.players[a.SessionID]
 	if !ok || p.StatPts <= 0 {
@@ -457,6 +442,7 @@ func (w *World) allocStat(a AllocStat) {
 func (w *World) simulate(dt float64) {
 	w.simulatePlayers(dt)
 	w.simulateMobs(dt)
+	w.simulateDrops()
 }
 
 func (w *World) simulatePlayers(dt float64) {
@@ -474,7 +460,7 @@ func (w *World) simulatePlayers(dt float64) {
 				dx := m.X - p.X
 				dz := m.Z - p.Z
 				dist := math.Hypot(dx, dz)
-				attackRange := combat.AttackRange(p.Class) + 0.5
+				attackRange := w.attackRange(p) + 0.5
 
 				if dist > attackRange {
 					// Auto-approach: el servidor acerca al jugador a su objetivo.
@@ -494,7 +480,7 @@ func (w *World) simulatePlayers(dt float64) {
 					p.Rot = math.Atan2(dx, dz)
 					if w.tick >= p.NextAttackTick {
 						w.playerAttack(p, m)
-						interval := combat.AttackInterval(p.stats(), p.Class)
+						interval := w.attackInterval(p)
 						ticks := uint64(interval / TickDuration)
 						if ticks < 1 {
 							ticks = 1
@@ -644,7 +630,7 @@ func (w *World) nearestPlayer(m *mob) (int64, bool) {
 }
 
 func (w *World) playerAttack(p *player, m *mob) {
-	minD, maxD := combat.DamageRange(p.stats(), p.Class)
+	minD, maxD := w.damageRange(p)
 	damage := combat.RollDamage(minD, maxD, w.rng.Float64())
 	damage = combat.ApplyDefense(damage, m.Spec.Defense)
 	crit := combat.IsCrit(w.rng.Float64())
@@ -675,7 +661,7 @@ func (w *World) mobAttack(m *mob, p *player) {
 	}
 
 	damage := combat.RollDamage(m.Spec.DamageMin, m.Spec.DamageMax, w.rng.Float64())
-	damage = combat.ApplyDefense(damage, combat.Defense(p.stats()))
+	damage = combat.ApplyDefense(damage, w.totalDefense(p))
 	crit := combat.IsCrit(w.rng.Float64())
 	if crit {
 		damage = combat.CritDamage(damage)
@@ -706,6 +692,9 @@ func (w *World) killMob(m *mob, killer *player) {
 	killer.XP += gained
 	killer.dirty = true
 
+	gold := w.rollGold(killer, m)
+	w.spawnLoot(m)
+
 	leveled := false
 	for {
 		need := combat.XPToNext(killer.Level)
@@ -732,14 +721,16 @@ func (w *World) killMob(m *mob, killer *player) {
 	w.broadcastEvent("mob_dead", protocol.MobDead{
 		ID:     m.ID,
 		XP:     gained,
+		Gold:   gold,
 		Killer: killer.ID,
 	})
 	w.sendSelfState(killer)
+	w.sendInventory(killer)
 	w.queueSave(killer)
 
 	w.log.Info("mob eliminado",
 		"mob", m.Spec.ID, "mob_id", m.ID,
-		"killer", killer.Name, "xp", gained, "level", killer.Level)
+		"killer", killer.Name, "xp", gained, "gold", gold, "level", killer.Level)
 }
 
 func (w *World) killPlayer(p *player) {
@@ -754,8 +745,6 @@ func (w *World) killPlayer(p *player) {
 	p.Rot = 0
 	p.HP = max(1, p.HPMax/2)
 	p.MP = p.MPMax / 2
-	p.HPPotions = startingPotions
-	p.MPPotions = startingPotions
 	p.NextPotionTick = w.tick
 	p.LastCombatTick = w.tick
 	p.dirty = true
@@ -786,6 +775,8 @@ func (w *World) killPlayer(p *player) {
 }
 
 func (w *World) selfState(p *player) protocol.SelfState {
+	hpPotions, mpPotions := w.potionCounts(p)
+	minD, maxD := w.damageRange(p)
 	return protocol.SelfState{
 		HP:         p.HP,
 		HPMax:      p.HPMax,
@@ -799,8 +790,12 @@ func (w *World) selfState(p *player) protocol.SelfState {
 		Vit:        p.Vit,
 		Ene:        p.Ene,
 		StatPoints: p.StatPts,
-		HPPotions:  p.HPPotions,
-		MPPotions:  p.MPPotions,
+		HPPotions:  hpPotions,
+		MPPotions:  mpPotions,
+		AttackMin:  minD,
+		AttackMax:  maxD,
+		Defense:    w.totalDefense(p),
+		IntervalMS: int(w.attackInterval(p).Milliseconds()),
 	}
 }
 
@@ -856,6 +851,9 @@ func (w *World) entities() []protocol.Entity {
 		}
 		ents = append(ents, m.entity())
 	}
+	for _, d := range w.drops {
+		ents = append(ents, d.entity(w.items))
+	}
 	slices.SortFunc(ents, func(a, b protocol.Entity) int {
 		switch {
 		case a.ID < b.ID:
@@ -888,6 +886,9 @@ func (w *World) queueSave(p *player) {
 	if w.saveCh == nil {
 		return
 	}
+	items := make([]model.Item, len(p.Items))
+	copy(items, p.Items)
+
 	state := model.CharacterState{
 		CharacterID: p.ID,
 		MapID:       w.mapID,
@@ -902,6 +903,7 @@ func (w *World) queueSave(p *player) {
 		Ene:         p.Ene,
 		StatPoints:  p.StatPts,
 		Gold:        p.Gold,
+		Items:       items,
 	}
 	select {
 	case w.saveCh <- state:

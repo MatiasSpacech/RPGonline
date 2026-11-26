@@ -52,13 +52,13 @@ func main() {
 		logger.Error("no se pudo encontrar gamedata", "err", err)
 		os.Exit(1)
 	}
-	gameData, err := gamedata.Load(os.DirFS(dataDir), "mobs.json", "maps/llanuras.json")
+	gameData, err := gamedata.Load(os.DirFS(dataDir), "items.json", "mobs.json", "maps/llanuras.json")
 	if err != nil {
 		logger.Error("gamedata inválida", "err", err)
 		os.Exit(1)
 	}
 	logger.Info("gamedata cargada", "dir", dataDir, "map", gameData.MapID,
-		"mobs", len(gameData.Mobs), "spawns", len(gameData.Spawns))
+		"mobs", len(gameData.Mobs), "items", len(gameData.Items), "spawns", len(gameData.Spawns))
 
 	// --- Base de datos ---
 	pool, err := db.Open(ctx, *dsn)

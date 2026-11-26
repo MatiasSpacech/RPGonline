@@ -2,7 +2,7 @@
 
 MMORPG 3D de acción **inspirado en MU Online** (dark fantasy, grind satisfactorio, mejora de ítems +N, click-to-move) pero con nombres, arte y diseño propios. Online a escala pequeña: **8–64 jugadores concurrentes por servidor**, con arquitectura que puede crecer después.
 
-> Estado: **F3 completado** · mobs con IA y respawn, auto-ataque autoritativo, XP/niveles, pociones, muerte y persistencia del progreso. Siguiente: **F4 — botín e ítems**.
+> Estado: **F4 completado** · drops, inventario 8×5, equipamiento con requisitos, mejora +N con riesgo, oro y vendedor. Siguiente: **F5 — mapas, clases y skills**.
 
 ## Stack decidido
 
@@ -35,12 +35,12 @@ MMORPG 3D de acción **inspirado en MU Online** (dark fantasy, grind satisfactor
 2. **F1 ✅** – "Walking simulator" online: conectar, ver a otros jugadores moverse
 3. **F2 ✅** – Cuentas y personajes persistentes (login + Postgres)
 4. **F3 ✅** – Combate contra mobs, XP y niveles
-5. **F4** – Loot, inventario, equipamiento y mejora +N
+5. **F4 ✅** – Loot, inventario, equipamiento y mejora +N
 6. **F5** – Mapas múltiples, clases y skills
 7. **F6** – Chat, party, muerte, balance
 8. **F7** – Despliegue y playtest con amigos
 
-## Correr el juego (F3 — combate)
+## Correr el juego (F4 — botín e ítems)
 
 Requisitos: Go 1.27+ y Godot 4.7+ (instalados en `~/.local`; `~/.bashrc` ya agrega `~/.local/go/bin` y `~/.local/bin` al PATH — abrí una terminal nueva o `source ~/.bashrc`).
 
@@ -56,21 +56,24 @@ make server          # ws://127.0.0.1:8080/ws · healthz: :8080/healthz
 godot --path client
 ```
 
+Cada personaje nuevo recibe un **kit inicial**: arma de su clase, 10 pociones de HP, 10 de MP, 1 Núcleo de mejora y **500 de oro**.
+
 Controles y loop:
 
-- **Crear cuenta** y personaje, elegí clase y **Entrar al mundo**.
-- **Click en el suelo** → caminar. **Click en un mob** → auto-ataque (el servidor te acerca hasta rango).
-- **1 / 2** o los botones del HUD → poción de HP/MP: tenés 5 de cada una, curación 40%, cooldown 3 s, se reponen al morir.
-- Matá mobs para ganar XP; al subir de nivel ganás **+5 puntos**: usá los `+` del panel derecho (STR/AGI/VIT/ENE). Nivel, XP y stats se guardan solos.
-- Si morís: respawn en el centro y −3% del XP del nivel (nunca perdés nivel); los mobs vuelven a su spawn.
-- Contenido actual: 5 tipos de mob y 18 spawns en `shared/gamedata/`.
+- **Click en el suelo** → caminar. **Click en un mob** → auto-ataque.
+- **Click en un drop** (caja brillante) → recogerlo; si estás lejos, tu personaje camina hasta él.
+- **I** o **Inventario** → mochila 8×5, equipo, oro, detalle y tienda. Click en un ítem para ver sus stats/requisitos; arrastrá para reordenar.
+- **Equipar** usa clase + requisitos de stats; **Mejorar** consume 1 Núcleo + oro: a partir de +7 un fallo baja un nivel y desde +10 hay 5% de destrucción.
+- **Tienda**: comprá pociones/núcleos, vendé ítems (30% del valor, ajustado por rareza y mejora).
+- Los mobs sueltan **oro e ítems** (loot tables en `shared/gamedata/`); las rarezas (común/bueno/raro/épico/legendario) se ven por color.
+- Todo (inventario, equipo, mejoras y oro) persiste en PostgreSQL.
 
 Tests:
 
 ```bash
 make test            # unitarios + integración en memoria (sin DB)
 make test-db         # incluye PostgreSQL real (con `make devdb` corriendo)
-make client-autotest # smoke test headless: registro/login → personaje → matar mob
+make client-autotest # headless: kit → equipar → mejorar → matar mob
 ```
 
 Atajos: `make devdb`, `make server`, `make client`, `make test`, `make test-db`.

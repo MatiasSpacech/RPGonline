@@ -212,6 +212,56 @@ func TestAuthCreateAndSelectFlow(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("no llegó world.AllocStat")
 	}
+
+	itemCases := []struct {
+		mtype   string
+		payload any
+		check   func(world.Command) bool
+	}{
+		{"pickup", protocol.Pickup{ID: 77}, func(c world.Command) bool {
+			v, ok := c.(world.Pickup)
+			return ok && v.DropID == 77
+		}},
+		{"equip", protocol.Equip{ItemID: 5}, func(c world.Command) bool {
+			v, ok := c.(world.Equip)
+			return ok && v.ItemID == 5
+		}},
+		{"unequip", protocol.Unequip{Slot: "weapon"}, func(c world.Command) bool {
+			v, ok := c.(world.Unequip)
+			return ok && v.Slot == "weapon"
+		}},
+		{"inv_move", protocol.InvMove{ItemID: 5, X: 2, Y: 3}, func(c world.Command) bool {
+			v, ok := c.(world.InvMove)
+			return ok && v.ItemID == 5 && v.X == 2 && v.Y == 3
+		}},
+		{"use_item", protocol.UseItem{ItemID: 5}, func(c world.Command) bool {
+			v, ok := c.(world.UseItem)
+			return ok && v.ItemID == 5
+		}},
+		{"enhance", protocol.Enhance{ItemID: 5}, func(c world.Command) bool {
+			v, ok := c.(world.Enhance)
+			return ok && v.ItemID == 5
+		}},
+		{"shop_buy", protocol.ShopBuy{Tmpl: "pot_hp", Qty: 2}, func(c world.Command) bool {
+			v, ok := c.(world.ShopBuy)
+			return ok && v.Tmpl == "pot_hp" && v.Qty == 2
+		}},
+		{"shop_sell", protocol.ShopSell{ItemID: 5}, func(c world.Command) bool {
+			v, ok := c.(world.ShopSell)
+			return ok && v.ItemID == 5
+		}},
+	}
+	for _, tc := range itemCases {
+		send(t, conn, tc.mtype, tc.payload)
+		select {
+		case cmd := <-inbox:
+			if !tc.check(cmd) {
+				t.Fatalf("%s reenviado mal: %#v", tc.mtype, cmd)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("no llegó %s al mundo", tc.mtype)
+		}
+	}
 }
 
 func TestWrongPasswordKeepsConnectionUsable(t *testing.T) {

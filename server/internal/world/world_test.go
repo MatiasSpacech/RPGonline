@@ -131,8 +131,11 @@ func TestJoinWelcomeSelfStateAndDuplicateCharacter(t *testing.T) {
 	if state.HP != state.HPMax || state.HP != 73 {
 		t.Fatalf("HP inicial = %d/%d, quería 73/73", state.HP, state.HPMax)
 	}
-	if state.HPPotions != startingPotions || state.Level != 1 {
+	if state.HPPotions != 0 || state.Level != 1 {
 		t.Fatalf("estado inicial = %+v", state)
+	}
+	if state.AttackMin < 1 || state.Defense != 8 {
+		t.Fatalf("stats derivados = atk %d-%d def %d", state.AttackMin, state.AttackMax, state.Defense)
 	}
 
 	errEnv, ok := findMessage(drainMessages(t, out3), "err")
@@ -296,9 +299,6 @@ func TestAggressiveMobKillsPlayerAndRespawnsWithPenalty(t *testing.T) {
 	if p.HP != p.HPMax/2 {
 		t.Fatalf("hp tras respawn = %d, quería %d", p.HP, p.HPMax/2)
 	}
-	if p.HPPotions != startingPotions {
-		t.Fatalf("pociones tras respawn = %d", p.HPPotions)
-	}
 
 	msgs := drainMessages(t, out)
 	if _, ok := findMessage(msgs, "death"); !ok {
@@ -320,10 +320,24 @@ func TestAggressiveMobKillsPlayerAndRespawnsWithPenalty(t *testing.T) {
 
 func TestPotionAndAllocStat(t *testing.T) {
 	saves := make(chan model.CharacterState, 16)
-	w := testWorld(saves, nil)
+	data := &gamedata.Data{
+		MapID: DefaultMapID,
+		Mobs:  map[string]gamedata.Mob{},
+		Items: map[string]gamedata.ItemTemplate{
+			"pot_hp": {
+				ID: "pot_hp", Name: "Poción", Kind: "potion", HealKind: "hp",
+				HealPercent: 40, Stackable: true, MaxStack: 20, Value: 10, BuyPrice: 50,
+			},
+		},
+	}
+	w := testWorld(saves, data)
 	out := make(chan []byte, 128)
 	w.addPlayer(Join{SessionID: 1, Character: testCharacter(101, "Kaen", model.ClassWarrior, 0, 0), Out: out})
 	p := w.players[1]
+	p.Items = []model.Item{{
+		ID: 1, CharacterID: 101, Tmpl: "pot_hp", Rarity: "common",
+		InvX: 0, InvY: 0, Qty: 2,
+	}}
 
 	p.HP = 10
 	w.tick = 100
@@ -331,14 +345,24 @@ func TestPotionAndAllocStat(t *testing.T) {
 	if p.HP != 39 { // 10 + 40% de 73 (29)
 		t.Fatalf("hp tras poción = %d, quería 39", p.HP)
 	}
-	if p.HPPotions != startingPotions-1 {
-		t.Fatalf("pociones = %d, quería %d", p.HPPotions, startingPotions-1)
+	if p.Items[0].Qty != 1 {
+		t.Fatalf("pociones = %d, quería 1", p.Items[0].Qty)
 	}
 
 	// Cooldown: el segundo uso inmediato se ignora.
 	w.usePotion(Potion{SessionID: 1, Kind: "hp"})
-	if p.HPPotions != startingPotions-1 {
-		t.Fatalf("el cooldown no se respetó: %d", p.HPPotions)
+	if p.Items[0].Qty != 1 {
+		t.Fatalf("el cooldown no se respetó: %d", p.Items[0].Qty)
+	}
+
+	// Descartar los guardados encolados por la poción antes de probar alloc.
+drainSaves:
+	for {
+		select {
+		case <-saves:
+		default:
+			break drainSaves
+		}
 	}
 
 	oldHPMax := p.HPMax

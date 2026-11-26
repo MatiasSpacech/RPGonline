@@ -67,14 +67,14 @@ El orden no es arbitrario: cada fase construye sobre la anterior y **cada una de
 
 ## F4 — Botín, inventario y mejora (4–6 sem) ❤ corazón emocional
 
-- [ ] Loot tables en JSON; drops al suelo con visual, pickup validado server-side.
-- [ ] Inventario de grilla (equip/unequip/use/move), instancias de ítems con rareza.
-- [ ] Equipamiento con requisitos de stat/clase; stats derivados recalculados server-side.
-- [ ] **Mejora +N** con probabilidades y fallo ([GDD §5.3](02-diseno-de-juego.md)); transacción atómica.
-- [ ] Oro + vendedor básico (compra pociones/núcleos, vende ítems).
-- [ ] HUD completo: inventario, tooltips, stats del personaje.
+- [x] Loot tables en JSON (26 ítems, 5 mobs) con oro; drops en el suelo con rareza y despawn (90 s), pickup validado server-side (≤3 m).
+- [x] Inventario 8×5 con stacks, equipar/desequipar/usar/mover (drag & drop), instancias con rareza y mejora; persistencia transaccional del inventario completo.
+- [x] Equipamiento con requisitos de clase/stats; daño, intervalo, rango y defensa derivados del equipo (starter kit por clase).
+- [x] **Mejora +N** con tabla del GDD, consumo de núcleo + oro, fallo −1 nivel desde +7 y 5% de destrucción desde +10; resolución pura testeada.
+- [x] Oro (drops automáticos al killer) + vendedor: pociones/núcleos, venta al 30% ajustado por rareza/mejora.
+- [x] HUD/UI completa: mochila, equipo, tooltips con stats/requisitos, colores por rareza, tienda, ATK/DEF y oro.
 
-**Criterio de aceptación**: matás, juntás, equipás, y una mejora +6→+7 te hace sostener la respiración (y a veces gritar). El oro persiste.
+**Criterio de aceptación**: ✅ verificado por tests (loot/pickup, equipo, mejora incluida destrucción, tienda, persistencia e2e con Postgres) y autotest headless (kit → equipar → mejorar → matar). Falta tu prueba visual y la sesión de 15 min con la tensión real de +6→+7.
 
 ## F5 — Mundo real: mapas, clases, skills (4–6 sem)
 

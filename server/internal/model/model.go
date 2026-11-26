@@ -66,6 +66,27 @@ type Character struct {
 	Gold       int64
 	MapID      string
 	X, Y, Z    float64
+	Items      []Item
+}
+
+// Item es una instancia de ítem (inventario o equipada).
+type Item struct {
+	ID           int64  `json:"id"`
+	CharacterID  int64  `json:"-"`
+	Tmpl         string `json:"tmpl"`
+	Enhance      int    `json:"enhance"`
+	Rarity       string `json:"rarity"`
+	EquippedSlot string `json:"slot,omitempty"`
+	InvX         int    `json:"x"`
+	InvY         int    `json:"y"`
+	Qty          int    `json:"qty"`
+}
+
+// StarterItem es un ítem inicial que se inserta al crear el personaje.
+type StarterItem struct {
+	Tmpl       string
+	Qty        int
+	InvX, InvY int
 }
 
 // Summary devuelve la versión resumida (lobby).
@@ -75,16 +96,19 @@ func (c Character) Summary() CharacterSummary {
 
 // CreateCharacterParams son los datos necesarios para insertar un personaje.
 type CreateCharacterParams struct {
-	UserID int64
-	Name   string
-	Class  string
-	Str    int
-	Agi    int
-	Vit    int
-	Ene    int
+	UserID       int64
+	Name         string
+	Class        string
+	Str          int
+	Agi          int
+	Vit          int
+	Ene          int
+	Gold         int64
+	StarterItems []StarterItem
 }
 
 // CharacterState es lo que se persiste periódicamente y al desconectarse.
+// Si Items es nil, el guardado no toca el inventario (útil en tests viejos).
 type CharacterState struct {
 	CharacterID int64
 	MapID       string
@@ -97,4 +121,5 @@ type CharacterState struct {
 	Ene         int
 	StatPoints  int
 	Gold        int64
+	Items       []Item
 }

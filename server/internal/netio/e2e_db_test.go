@@ -61,6 +61,25 @@ func TestPersistenceAcrossReconnect(t *testing.T) {
 				AttackIntervalMS: 1000, RespawnSeconds: 10, Passive: true,
 			},
 		},
+		Items: map[string]gamedata.ItemTemplate{
+			"sword_iron": {
+				ID: "sword_iron", Name: "Espada de hierro", Kind: "weapon", Slot: "weapon",
+				Class: model.ClassWarrior, ReqStr: 25, MinDamage: 8, MaxDamage: 14,
+				IntervalMS: 1100, Range: 1.8, Value: 200,
+			},
+			"pot_hp": {
+				ID: "pot_hp", Name: "Poción de vida", Kind: "potion", HealKind: "hp",
+				HealPercent: 40, Stackable: true, MaxStack: 20, Value: 10, BuyPrice: 50,
+			},
+			"pot_mp": {
+				ID: "pot_mp", Name: "Poción de maná", Kind: "potion", HealKind: "mp",
+				HealPercent: 40, Stackable: true, MaxStack: 20, Value: 10, BuyPrice: 50,
+			},
+			"core_enhance": {
+				ID: "core_enhance", Name: "Núcleo de mejora", Kind: "core",
+				Stackable: true, MaxStack: 20, Value: 120, BuyPrice: 600,
+			},
+		},
 		Spawns: []gamedata.Spawn{{Mob: "dummy", X: 1.5, Z: 0}},
 	}
 
@@ -111,6 +130,66 @@ func TestPersistenceAcrossReconnect(t *testing.T) {
 	}
 	if welcome.Self.X != 0 || welcome.Self.Z != 0 {
 		t.Fatalf("posición inicial = (%v, %v), quería (0, 0)", welcome.Self.X, welcome.Self.Z)
+	}
+
+	// 3.5) Kit inicial, equipar y mejorar el arma.
+	env = readEnvelope(t, conn, "inventory", 3*time.Second)
+	var inv protocol.Inventory
+	if err := json.Unmarshal(env.D, &inv); err != nil {
+		t.Fatalf("inventory: %v", err)
+	}
+	if len(inv.Items) != 4 || inv.Gold != 500 {
+		t.Fatalf("kit inicial = %d ítems, %d oro", len(inv.Items), inv.Gold)
+	}
+	var weaponID int64
+	for _, it := range inv.Items {
+		if it.Tmpl == "sword_iron" {
+			weaponID = it.ID
+		}
+	}
+	if weaponID == 0 {
+		t.Fatal("el kit inicial no trae espada")
+	}
+
+	send(t, conn, "equip", protocol.Equip{ItemID: weaponID})
+	env = readEnvelope(t, conn, "inventory", 3*time.Second)
+	if err := json.Unmarshal(env.D, &inv); err != nil {
+		t.Fatalf("inventory tras equipar: %v", err)
+	}
+	weaponEquipped := false
+	for _, it := range inv.Items {
+		if it.ID == weaponID && it.EquippedSlot == "weapon" {
+			weaponEquipped = true
+		}
+	}
+	if !weaponEquipped {
+		t.Fatal("la espada no quedó equipada")
+	}
+
+	send(t, conn, "enhance", protocol.Enhance{ItemID: weaponID})
+	env = readEnvelope(t, conn, "enhance_result", 3*time.Second)
+	var enhanceResult protocol.EnhanceResult
+	if err := json.Unmarshal(env.D, &enhanceResult); err != nil {
+		t.Fatalf("enhance_result: %v", err)
+	}
+	env = readEnvelope(t, conn, "inventory", 3*time.Second)
+	if err := json.Unmarshal(env.D, &inv); err != nil {
+		t.Fatalf("inventory tras mejorar: %v", err)
+	}
+	if inv.Gold != 450 {
+		t.Fatalf("oro tras mejorar = %d, quería 450", inv.Gold)
+	}
+	coreLeft := false
+	for _, it := range inv.Items {
+		if it.Tmpl == "core_enhance" {
+			coreLeft = true
+		}
+		if it.ID == weaponID && it.Enhance != enhanceResult.NewEnhance {
+			t.Fatalf("enhance del arma = %d, resultado = %d", it.Enhance, enhanceResult.NewEnhance)
+		}
+	}
+	if coreLeft {
+		t.Fatal("el núcleo debería haberse consumido")
 	}
 
 	send(t, conn, "move_req", protocol.MoveReq{X: 8, Z: -3})
@@ -199,8 +278,27 @@ func TestPersistenceAcrossReconnect(t *testing.T) {
 	if saved.StatPoints != 5 {
 		t.Fatalf("stat points guardados = %d, quería 5", saved.StatPoints)
 	}
+	if saved.Gold != 450 {
+		t.Fatalf("oro guardado = %d, quería 450", saved.Gold)
+	}
+	var savedWeapon model.Item
+	coreSaved := false
+	for _, it := range saved.Items {
+		if it.ID == weaponID {
+			savedWeapon = it
+		}
+		if it.Tmpl == "core_enhance" {
+			coreSaved = true
+		}
+	}
+	if savedWeapon.EquippedSlot != "weapon" || savedWeapon.Enhance != enhanceResult.NewEnhance {
+		t.Fatalf("arma guardada = %+v (resultado %+v)", savedWeapon, enhanceResult)
+	}
+	if coreSaved {
+		t.Fatal("el núcleo no debería persistir tras la mejora")
+	}
 
-	// 6) Reconectar + login + seleccionar: nivel y posición se restauran.
+	// 6) Reconectar + login + seleccionar: nivel, posición e inventario se restauran.
 	conn2 := dial(t, ts)
 	send(t, conn2, "login", protocol.Auth{User: "matias", Pass: "secreto123"})
 	readEnvelope(t, conn2, "login_ok", 3*time.Second)
@@ -220,5 +318,20 @@ func TestPersistenceAcrossReconnect(t *testing.T) {
 	}
 	if welcome2.Self.X <= 1.0 {
 		t.Fatalf("la posición restaurada no refleja el movimiento: x=%v", welcome2.Self.X)
+	}
+
+	env = readEnvelope(t, conn2, "inventory", 3*time.Second)
+	var inv2 protocol.Inventory
+	if err := json.Unmarshal(env.D, &inv2); err != nil {
+		t.Fatalf("inventory2: %v", err)
+	}
+	weaponRestored := false
+	for _, it := range inv2.Items {
+		if it.ID == weaponID && it.EquippedSlot == "weapon" && it.Enhance == enhanceResult.NewEnhance {
+			weaponRestored = true
+		}
+	}
+	if !weaponRestored || inv2.Gold != 450 {
+		t.Fatalf("inventario restaurado = %+v (oro %d)", inv2.Items, inv2.Gold)
 	}
 }

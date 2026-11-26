@@ -85,7 +85,8 @@ CREATE TABLE character_skills (
   - **Cada 60 s** para personajes con cambios (`dirty flag`) — perder ≤60 s de progreso ante un crash es aceptable en MVP;
   - **al desconectarse** (guardado final) y **al apagar el servidor** (todos los conectados);
   - **inmediato** en eventos de progresión (nivel, muerte, asignación de stats) vía la misma cola;
-  - el estado guardado incluye posición, mapa, nivel, XP, stats, puntos y oro (F3);
+  - el estado guardado incluye posición, mapa, nivel, XP, stats, puntos, oro e **inventario completo** (F4);
+  - el inventario se reemplaza completo dentro de la misma transacción (`DELETE` + `INSERT`), como snapshot atómico de ítems; una mejora nunca queda a medias en la BD;
   - transacciones: la mejora de ítem hará todo en una tx para no perder ítems a mitad.
 - Cache de personajes en memoria mientras están conectados; la BD es "snapshot + cola de guardado", no lectura continua.
 

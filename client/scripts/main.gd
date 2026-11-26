@@ -8,10 +8,13 @@ const CAMERA_OFFSET := Vector3(0, 8, 10)
 const NetClientScript := preload("res://scripts/net_client.gd")
 const AuthUIScript := preload("res://scripts/auth_ui.gd")
 const GameHUDScript := preload("res://scripts/hud.gd")
+const InventoryUIScript := preload("res://scripts/inventory_ui.gd")
 const PlayerEntityScript := preload("res://scripts/player_entity.gd")
 const MobEntityScript := preload("res://scripts/mob_entity.gd")
+const DropEntityScript := preload("res://scripts/drop_entity.gd")
 const PLAYER_SCENE := preload("res://scenes/player_entity.tscn")
 const MOB_SCENE := preload("res://scenes/mob_entity.tscn")
+const DROP_SCENE := preload("res://scenes/drop_entity.tscn")
 
 const AUTOTEST_USER := "autotest"
 const AUTOTEST_PASS := "secreto123"
@@ -20,12 +23,15 @@ const AUTOTEST_CHAR := "AutoWarrior"
 @onready var _net: NetClientScript = $NetClient
 @onready var _ui: AuthUIScript = $UIOverlay
 @onready var _hud: GameHUDScript = $UI
+@onready var _inventory: InventoryUIScript = $UIInventory
 @onready var _camera: Camera3D = $Camera3D
 @onready var _entities_root: Node3D = $Entities
 @onready var _marker: MeshInstance3D = $MoveMarker
 
 var _entities: Dictionary = {}
 var _mobs: Dictionary = {}
+var _drops: Dictionary = {}
+var _item_templates: Dictionary = {}
 var _self_id := 0
 var _self_entity: PlayerEntityScript = null
 var _character: Dictionary = {}
@@ -38,6 +44,9 @@ var _marker_tween: Tween
 var _autotest := false
 var _autotest_state := 0
 var _autotest_attack_sent := false
+var _autotest_items_ok := false
+var _autotest_equip_sent := false
+var _autotest_enhance_sent := false
 var _autotest_done := false
 
 
@@ -61,6 +70,8 @@ func _ready() -> void:
 	_net.death_received.connect(_on_death)
 	_net.levelup_received.connect(_on_levelup)
 	_net.teleport_received.connect(_on_teleport)
+	_net.inventory_received.connect(_on_inventory_received)
+	_net.enhance_result_received.connect(_on_enhance_result)
 
 	_ui.login_requested.connect(_on_ui_login)
 	_ui.register_requested.connect(_on_ui_register)
@@ -70,7 +81,16 @@ func _ready() -> void:
 
 	_hud.potion_requested.connect(_on_hud_potion)
 	_hud.alloc_stat_requested.connect(_on_hud_alloc_stat)
+	_hud.inventory_requested.connect(_toggle_inventory)
 	_hud.reset()
+
+	_inventory.equip_requested.connect(_net.equip_item)
+	_inventory.unequip_requested.connect(_net.unequip_item)
+	_inventory.use_requested.connect(_net.use_item)
+	_inventory.enhance_requested.connect(_net.enhance_item)
+	_inventory.sell_requested.connect(_net.shop_sell)
+	_inventory.move_requested.connect(_net.move_item)
+	_inventory.buy_requested.connect(func(tmpl: String): _net.shop_buy(tmpl))
 
 	_ui.show_auth("Conectando al servidor...")
 	if _autotest:
@@ -90,19 +110,27 @@ func _process(_delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if not _in_game:
+	if _inventory.is_open():
+		if event is InputEventKey and event.pressed and not event.echo:
+			if event.physical_keycode == KEY_I or event.physical_keycode == KEY_ESCAPE:
+				_inventory.close()
 		return
 
-	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
-		_handle_click(event.position)
+	if not _in_game:
 		return
 
 	if event is InputEventKey and event.pressed and not event.echo:
 		match event.physical_keycode:
+			KEY_I:
+				_inventory.open()
+				return
 			KEY_1:
 				_net.use_potion("hp")
 			KEY_2:
 				_net.use_potion("mp")
+
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+		_handle_click(event.position)
 
 
 func _handle_click(screen_pos: Vector2) -> void:
@@ -110,8 +138,19 @@ func _handle_click(screen_pos: Vector2) -> void:
 	if point == Vector3.INF:
 		return
 
-	# Prioridad: si el clic cae cerca de un mob, atacarlo (el servidor se
-	# encarga de acercarse). Si no, caminar.
+	# Prioridad: drop en el suelo → atacar mob → caminar.
+	var drop_id := _drop_near(point, 1.1)
+	if drop_id != 0:
+		var drop: DropEntityScript = _drops[drop_id]
+		var drop_point := Vector3(drop.position.x, 0.0, drop.position.z)
+		if _self_entity == null or drop_point.distance_to(_self_entity.position) > 3.0:
+			_net.send_move(drop_point)
+			_show_marker(drop_point)
+		else:
+			_net.pickup(drop_id)
+			_show_marker(drop_point)
+		return
+
 	var mob_id := _mob_near(point, 1.8)
 	if mob_id != 0:
 		_net.attack(mob_id)
@@ -149,6 +188,18 @@ func _mob_near(point: Vector3, radius: float) -> int:
 	return best_id
 
 
+func _drop_near(point: Vector3, radius: float) -> int:
+	var best_id := 0
+	var best_dist := radius
+	for id in _drops.keys():
+		var drop: DropEntityScript = _drops[id]
+		var dist := Vector2(drop.position.x - point.x, drop.position.z - point.z).length()
+		if dist < best_dist:
+			best_dist = dist
+			best_id = int(id)
+	return best_id
+
+
 func _show_marker(point: Vector3) -> void:
 	if _marker_tween != null and _marker_tween.is_valid():
 		_marker_tween.kill()
@@ -180,6 +231,9 @@ func _on_net_disconnected(reason: String) -> void:
 	_in_game = false
 	clear_entities()
 	_hud.reset()
+	_inventory.set_inventory({"gold": 0, "items": []})
+	if _inventory.is_open():
+		_inventory.close()
 	_ui.show_auth("Desconectado: %s\nReintentando automáticamente..." % reason)
 
 
@@ -187,6 +241,9 @@ func _on_login_ok(data: Dictionary) -> void:
 	_in_game = false
 	clear_entities()
 	_hud.reset()
+	_inventory.set_inventory({"gold": 0, "items": []})
+	if _inventory.is_open():
+		_inventory.close()
 
 	var user := str(data.get("user", "?"))
 	var chars_variant: Variant = data.get("chars", [])
@@ -224,6 +281,21 @@ func _on_welcome(data: Dictionary) -> void:
 	_ui.show_game()
 	clear_entities()
 	_hud.reset()
+	if _inventory.is_open():
+		_inventory.close()
+
+	var game_data_variant: Variant = data.get("game_data", {})
+	if game_data_variant is Dictionary:
+		var game_data: Dictionary = game_data_variant
+		var items_variant: Variant = game_data.get("items", [])
+		if items_variant is Array:
+			var items: Array = items_variant
+			_item_templates.clear()
+			for entry in items:
+				if entry is Dictionary:
+					var t: Dictionary = entry
+					_item_templates[str(t.get("id", ""))] = t
+			_inventory.set_game_data(items)
 
 	var char_variant: Variant = data.get("character", {})
 	_character = char_variant if char_variant is Dictionary else {}
@@ -252,6 +324,9 @@ func _on_welcome(data: Dictionary) -> void:
 	if _autotest:
 		_autotest_state = 5
 		_autotest_attack_sent = false
+		_autotest_items_ok = false
+		_autotest_equip_sent = false
+		_autotest_enhance_sent = false
 
 
 func _on_snapshot(data: Dictionary) -> void:
@@ -268,6 +343,7 @@ func _on_snapshot(data: Dictionary) -> void:
 
 	var seen_pcs := {}
 	var seen_mobs := {}
+	var seen_drops := {}
 
 	for entry in ents:
 		if not (entry is Dictionary):
@@ -279,6 +355,24 @@ func _on_snapshot(data: Dictionary) -> void:
 
 		var pos := Vector3(float(e.get("x", 0.0)), 0.0, float(e.get("z", 0.0)))
 		var kind := str(e.get("k", "pc"))
+
+		if kind == "drop":
+			seen_drops[id] = true
+			var drop: DropEntityScript = _drops.get(id) as DropEntityScript
+			if drop == null:
+				drop = DROP_SCENE.instantiate() as DropEntityScript
+				if drop == null:
+					continue
+				_entities_root.add_child(drop)
+				drop.setup(
+					id,
+					str(e.get("tmpl", "")),
+					str(e.get("name", "Ítem")),
+					str(e.get("rarity", "common"))
+				)
+				_drops[id] = drop
+			drop.position = pos
+			continue
 
 		if kind == "mob":
 			seen_mobs[id] = true
@@ -321,13 +415,14 @@ func _on_snapshot(data: Dictionary) -> void:
 
 	_remove_missing(_entities, seen_pcs, true)
 	_remove_missing(_mobs, seen_mobs, false)
+	_remove_missing(_drops, seen_drops, false)
 	_update_info()
 
-	if _autotest and _autotest_state == 5 and not _autotest_attack_sent:
+	if _autotest and _autotest_items_ok and not _autotest_attack_sent:
 		var target := _nearest_mob_for_autotest()
 		if target != 0:
 			_autotest_attack_sent = true
-			_autotest_state = 6
+			_autotest_state = 7
 			print("[autotest] atacando mob %d" % target)
 			_net.attack(target)
 
@@ -370,6 +465,44 @@ func _nearest_mob_for_autotest() -> int:
 
 func _on_self_state(data: Dictionary) -> void:
 	_hud.update_self_state(data)
+	_inventory.set_stats(
+		int(data.get("attack_min", 0)),
+		int(data.get("attack_max", 0)),
+		int(data.get("defense", 0))
+	)
+
+
+func _on_inventory_received(data: Dictionary) -> void:
+	_inventory.set_inventory(data)
+	var items_variant: Variant = data.get("items", [])
+	var count := 0
+	if items_variant is Array:
+		count = (items_variant as Array).size()
+	print("[game] inventario: %d ítems · %d oro" % [count, int(data.get("gold", 0))])
+	if _autotest:
+		_autotest_handle_inventory(data)
+
+
+func _on_enhance_result(data: Dictionary) -> void:
+	var success := bool(data.get("success", false))
+	var destroyed := bool(data.get("destroyed", false))
+	if destroyed:
+		_hud.toast("¡El ítem se destruyó!", Color(1.0, 0.35, 0.3))
+	elif success:
+		_hud.toast("¡Mejora exitosa! +%d" % int(data.get("new_enhance", 0)), Color(1.0, 0.85, 0.35))
+	else:
+		_hud.toast("Falló la mejora", Color(0.75, 0.78, 0.85))
+
+	if _autotest:
+		_autotest_items_ok = true
+		_autotest_state = 6
+		print("[autotest] enhance: success=%s destroyed=%s" % [success, destroyed])
+
+
+func _toggle_inventory() -> void:
+	if not _in_game:
+		return
+	_inventory.toggle()
 
 
 func _on_damage(data: Dictionary) -> void:
@@ -391,10 +524,14 @@ func _on_damage(data: Dictionary) -> void:
 func _on_mob_dead(data: Dictionary) -> void:
 	var mob_id := int(data.get("id", 0))
 	var xp := int(data.get("xp", 0))
+	var gold := int(data.get("gold", 0))
 	var node: MobEntityScript = _mobs.get(mob_id) as MobEntityScript
 	if node != null:
 		var screen := _camera.unproject_position(node.position + Vector3(0, 2.2, 0))
-		_hud.float_text(screen, "+%d XP" % xp, Color(0.55, 1.0, 0.6))
+		var text := "+%d XP" % xp
+		if gold > 0:
+			text += "\n+%d oro" % gold
+		_hud.float_text(screen, text, Color(0.55, 1.0, 0.6))
 
 	if _autotest and not _autotest_done:
 		_autotest_done = true
@@ -405,6 +542,8 @@ func _on_mob_dead(data: Dictionary) -> void:
 func _on_death(data: Dictionary) -> void:
 	var lost := int(data.get("xp_lost", 0))
 	_hud.toast("Moriste · -%d XP" % lost, Color(1.0, 0.45, 0.4))
+	if _inventory.is_open():
+		_inventory.close()
 
 
 func _on_levelup(data: Dictionary) -> void:
@@ -418,6 +557,8 @@ func _on_teleport(data: Dictionary) -> void:
 		_self_entity.snap_to(pos)
 	_camera.position = pos + CAMERA_OFFSET
 	_marker.visible = false
+	if _inventory.is_open():
+		_inventory.close()
 
 
 func _on_pong(rtt_ms: int) -> void:
@@ -434,10 +575,11 @@ func _on_server_error(code: String, message: String) -> void:
 
 
 func _update_info() -> void:
-	_hud.set_info("tick %d  ·  jugadores: %d  ·  mobs: %d  ·  RTT: %d ms" % [
+	_hud.set_info("tick %d  ·  jugadores: %d  ·  mobs: %d  ·  drops: %d  ·  RTT: %d ms" % [
 		_current_tick,
 		_entities.size(),
 		_mobs.size(),
+		_drops.size(),
 		_last_rtt,
 	])
 
@@ -483,11 +625,59 @@ func clear_entities() -> void:
 		if mob != null:
 			mob.queue_free()
 	_mobs.clear()
+	for drop in _drops.values():
+		if drop != null:
+			drop.queue_free()
+	_drops.clear()
 	_self_entity = null
 	_self_id = 0
 
 
 ## --- Autotest headless ---
+
+func _autotest_handle_inventory(data: Dictionary) -> void:
+	if not _autotest or _autotest_items_ok:
+		return
+
+	var items: Array = []
+	var items_variant: Variant = data.get("items", [])
+	if items_variant is Array:
+		items = items_variant
+
+	var weapon: Dictionary = {}
+	var has_core := false
+	for entry in items:
+		if not (entry is Dictionary):
+			continue
+		var it: Dictionary = entry
+		var tmpl: Dictionary = _item_templates.get(str(it.get("tmpl", "")), {})
+		if str(tmpl.get("kind", "")) == "core":
+			has_core = true
+		if str(it.get("slot", "")) == "weapon":
+			weapon = it
+		elif weapon.is_empty() and str(tmpl.get("kind", "")) == "weapon":
+			weapon = it
+
+	if not _autotest_equip_sent and not weapon.is_empty() and str(weapon.get("slot", "")) == "":
+		_autotest_equip_sent = true
+		print("[autotest] equipando arma %d" % int(weapon.get("id", 0)))
+		_net.equip_item(int(weapon.get("id", 0)))
+		return
+
+	var gold := int(data.get("gold", 0))
+	if _autotest_equip_sent and not _autotest_enhance_sent and has_core and not weapon.is_empty() and gold >= 50:
+		_autotest_enhance_sent = true
+		print("[autotest] mejorando arma %d" % int(weapon.get("id", 0)))
+		_net.enhance_item(int(weapon.get("id", 0)))
+		return
+
+	_autotest_items_ok = true
+	_autotest_state = 6
+	if weapon.is_empty():
+		print("[autotest] sin kit inicial; sigo a combate")
+	else:
+		print("[autotest] items OK")
+
 
 func _autotest_watchdog() -> void:
 	await get_tree().create_timer(30.0).timeout

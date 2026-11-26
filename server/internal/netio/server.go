@@ -380,6 +380,94 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 				s.inbox <- world.AllocStat{SessionID: sessionID, Stat: req.Stat}
 			}
 
+		case "pickup":
+			if !sess.inWorld {
+				continue
+			}
+			var req protocol.Pickup
+			if err := json.Unmarshal(env.D, &req); err != nil {
+				log.Warn("pickup malformado", "err", err)
+				return
+			}
+			s.inbox <- world.Pickup{SessionID: sessionID, DropID: req.ID}
+
+		case "equip":
+			if !sess.inWorld {
+				continue
+			}
+			var req protocol.Equip
+			if err := json.Unmarshal(env.D, &req); err != nil {
+				log.Warn("equip malformado", "err", err)
+				return
+			}
+			s.inbox <- world.Equip{SessionID: sessionID, ItemID: req.ItemID}
+
+		case "unequip":
+			if !sess.inWorld {
+				continue
+			}
+			var req protocol.Unequip
+			if err := json.Unmarshal(env.D, &req); err != nil {
+				log.Warn("unequip malformado", "err", err)
+				return
+			}
+			s.inbox <- world.Unequip{SessionID: sessionID, Slot: req.Slot}
+
+		case "inv_move":
+			if !sess.inWorld {
+				continue
+			}
+			var req protocol.InvMove
+			if err := json.Unmarshal(env.D, &req); err != nil {
+				log.Warn("inv_move malformado", "err", err)
+				return
+			}
+			s.inbox <- world.InvMove{SessionID: sessionID, ItemID: req.ItemID, X: req.X, Y: req.Y}
+
+		case "use_item":
+			if !sess.inWorld {
+				continue
+			}
+			var req protocol.UseItem
+			if err := json.Unmarshal(env.D, &req); err != nil {
+				log.Warn("use_item malformado", "err", err)
+				return
+			}
+			s.inbox <- world.UseItem{SessionID: sessionID, ItemID: req.ItemID}
+
+		case "enhance":
+			if !sess.inWorld {
+				continue
+			}
+			var req protocol.Enhance
+			if err := json.Unmarshal(env.D, &req); err != nil {
+				log.Warn("enhance malformado", "err", err)
+				return
+			}
+			s.inbox <- world.Enhance{SessionID: sessionID, ItemID: req.ItemID}
+
+		case "shop_buy":
+			if !sess.inWorld {
+				continue
+			}
+			var req protocol.ShopBuy
+			if err := json.Unmarshal(env.D, &req); err != nil {
+				log.Warn("shop_buy malformado", "err", err)
+				return
+			}
+			s.inbox <- world.ShopBuy{SessionID: sessionID, Tmpl: req.Tmpl, Qty: req.Qty}
+
+		case "shop_sell":
+			if !sess.inWorld {
+				continue
+			}
+			var req protocol.ShopSell
+			if err := json.Unmarshal(env.D, &req); err != nil {
+				log.Warn("shop_sell malformado", "err", err)
+				return
+			}
+			s.inbox <- world.ShopSell{SessionID: sessionID, ItemID: req.ItemID}
+
 		default:
 			log.Debug("mensaje sin handler", "tipo", env.T)
 		}

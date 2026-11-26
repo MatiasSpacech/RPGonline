@@ -1,0 +1,134 @@
+{
+  "items": [
+    {
+      "id": "sword_iron", "name": "Espada de hierro", "kind": "weapon", "slot": "weapon",
+      "class": "warrior", "req_str": 25,
+      "min_damage": 8, "max_damage": 14, "interval_ms": 1100, "range": 1.8,
+      "value": 200
+    },
+    {
+      "id": "sword_steel", "name": "Espada de acero", "kind": "weapon", "slot": "weapon",
+      "class": "warrior", "req_str": 45,
+      "min_damage": 14, "max_damage": 22, "interval_ms": 1100, "range": 1.8,
+      "value": 600
+    },
+    {
+      "id": "axe_battle", "name": "Hacha de batalla", "kind": "weapon", "slot": "weapon",
+      "class": "warrior", "req_str": 60,
+      "min_damage": 22, "max_damage": 32, "interval_ms": 1250, "range": 1.8,
+      "value": 1200
+    },
+    {
+      "id": "staff_apprentice", "name": "Bastón de aprendiz", "kind": "weapon", "slot": "weapon",
+      "class": "mage", "req_ene": 25,
+      "min_damage": 7, "max_damage": 12, "interval_ms": 1400, "range": 8.0,
+      "value": 200
+    },
+    {
+      "id": "staff_bone", "name": "Bastón de hueso", "kind": "weapon", "slot": "weapon",
+      "class": "mage", "req_ene": 45,
+      "min_damage": 13, "max_damage": 19, "interval_ms": 1400, "range": 8.0,
+      "value": 600
+    },
+    {
+      "id": "staff_arcane", "name": "Bastón arcano", "kind": "weapon", "slot": "weapon",
+      "class": "mage", "req_ene": 60,
+      "min_damage": 20, "max_damage": 28, "interval_ms": 1350, "range": 8.5,
+      "value": 1200
+    },
+    {
+      "id": "bow_short", "name": "Arco corto", "kind": "weapon", "slot": "weapon",
+      "class": "archer", "req_agi": 22,
+      "min_damage": 5, "max_damage": 10, "interval_ms": 900, "range": 9.0,
+      "value": 200
+    },
+    {
+      "id": "bow_hunter", "name": "Arco de cazador", "kind": "weapon", "slot": "weapon",
+      "class": "archer", "req_agi": 45,
+      "min_damage": 11, "max_damage": 17, "interval_ms": 900, "range": 9.0,
+      "value": 600
+    },
+    {
+      "id": "bow_elven", "name": "Arco élfico", "kind": "weapon", "slot": "weapon",
+      "class": "archer", "req_agi": 60,
+      "min_damage": 16, "max_damage": 25, "interval_ms": 850, "range": 9.5,
+      "value": 1200
+    },
+
+    {
+      "id": "leather_cap", "name": "Casco de cuero", "kind": "armor", "slot": "helm",
+      "req_vit": 15, "defense": 2, "value": 40
+    },
+    {
+      "id": "leather_armor", "name": "Armadura de cuero", "kind": "armor", "slot": "chest",
+      "req_vit": 18, "defense": 4, "value": 80
+    },
+    {
+      "id": "leather_gloves", "name": "Guantes de cuero", "kind": "armor", "slot": "gloves",
+      "req_vit": 15, "defense": 2, "value": 40
+    },
+    {
+      "id": "leather_boots", "name": "Botas de cuero", "kind": "armor", "slot": "boots",
+      "req_vit": 15, "defense": 2, "value": 40
+    },
+    {
+      "id": "chain_helm", "name": "Casco de malla", "kind": "armor", "slot": "helm",
+      "req_vit": 30, "defense": 4, "value": 120
+    },
+    {
+      "id": "chain_armor", "name": "Cota de malla", "kind": "armor", "slot": "chest",
+      "req_vit": 35, "defense": 7, "value": 240
+    },
+    {
+      "id": "chain_gloves", "name": "Guantes de malla", "kind": "armor", "slot": "gloves",
+      "req_vit": 30, "defense": 4, "value": 120
+    },
+    {
+      "id": "chain_boots", "name": "Botas de malla", "kind": "armor", "slot": "boots",
+      "req_vit": 30, "defense": 4, "value": 120
+    },
+    {
+      "id": "plate_helm", "name": "Casco de placas", "kind": "armor", "slot": "helm",
+      "req_vit": 50, "defense": 7, "value": 300
+    },
+    {
+      "id": "plate_armor", "name": "Armadura de placas", "kind": "armor", "slot": "chest",
+      "req_vit": 55, "defense": 12, "value": 600
+    },
+    {
+      "id": "plate_gloves", "name": "Guantes de placas", "kind": "armor", "slot": "gloves",
+      "req_vit": 50, "defense": 7, "value": 300
+    },
+    {
+      "id": "plate_boots", "name": "Botas de placas", "kind": "armor", "slot": "boots",
+      "req_vit": 50, "defense": 7, "value": 300
+    },
+
+    {
+      "id": "wooden_shield", "name": "Escudo de madera", "kind": "armor", "slot": "shield",
+      "class": "warrior", "req_str": 25, "defense": 4, "value": 90
+    },
+    {
+      "id": "iron_shield", "name": "Escudo de hierro", "kind": "armor", "slot": "shield",
+      "class": "warrior", "req_str": 45, "defense": 8, "value": 250
+    },
+
+    {
+      "id": "pot_hp", "name": "Poción de vida", "kind": "potion",
+      "heal_kind": "hp", "heal_percent": 40,
+      "stackable": true, "max_stack": 20,
+      "value": 10, "buy_price": 50
+    },
+    {
+      "id": "pot_mp", "name": "Poción de maná", "kind": "potion",
+      "heal_kind": "mp", "heal_percent": 40,
+      "stackable": true, "max_stack": 20,
+      "value": 10, "buy_price": 50
+    },
+    {
+      "id": "core_enhance", "name": "Núcleo de mejora", "kind": "core",
+      "stackable": true, "max_stack": 20,
+      "value": 120, "buy_price": 600
+    }
+  ]
+}

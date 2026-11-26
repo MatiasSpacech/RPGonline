@@ -79,17 +79,27 @@ func AttackRange(class string) float64 {
 
 // AttackInterval baja con AGI: base_ms / (1 + AGI*0.005), mínimo 250 ms.
 func AttackInterval(s Stats, class string) time.Duration {
-	ms := Profile(class).IntervalMS / (1 + float64(s.Agi)*0.005)
+	return AttackIntervalFromBase(s, Profile(class).IntervalMS)
+}
+
+// AttackIntervalFromBase aplica la reducción por AGI a un arma concreta.
+func AttackIntervalFromBase(s Stats, baseMS float64) time.Duration {
+	ms := baseMS / (1 + float64(s.Agi)*0.005)
 	if ms < 250 {
 		ms = 250
 	}
 	return time.Duration(math.Round(ms)) * time.Millisecond
 }
 
-// DamageRange devuelve (min, max) de daño según clase y stats.
-// Guerrero: arma + STR*0.6 · Mago: arma + ENE*0.8 · Arquera: arma + AGI*0.5.
+// DamageRange devuelve (min, max) de daño según clase y stats con el arma
+// base de la clase. Guerrero: +STR*0.6 · Mago: +ENE*0.8 · Arquera: +AGI*0.5.
 func DamageRange(s Stats, class string) (int, int) {
 	p := Profile(class)
+	return DamageRangeFromBase(s, class, p.MinDamage, p.MaxDamage)
+}
+
+// DamageRangeFromBase aplica el bonus de stat de la clase al daño de un arma.
+func DamageRangeFromBase(s Stats, class string, baseMin, baseMax int) (int, int) {
 	bonus := 0.0
 	switch class {
 	case "warrior":
@@ -100,8 +110,8 @@ func DamageRange(s Stats, class string) (int, int) {
 		bonus = float64(s.Agi) * 0.5
 	}
 
-	minDamage := int(math.Round(float64(p.MinDamage) + bonus))
-	maxDamage := int(math.Round(float64(p.MaxDamage) + bonus))
+	minDamage := int(math.Round(float64(baseMin) + bonus))
+	maxDamage := int(math.Round(float64(baseMax) + bonus))
 	if minDamage < 1 {
 		minDamage = 1
 	}

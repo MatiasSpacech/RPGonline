@@ -26,6 +26,13 @@ var (
 	characterPattern = regexp.MustCompile(`^[\p{L}]{3,16}$`)
 )
 
+// starterWeapon asigna el arma inicial de cada clase.
+var starterWeapon = map[string]string{
+	model.ClassWarrior: "sword_iron",
+	model.ClassMage:    "staff_apprentice",
+	model.ClassArcher:  "bow_short",
+}
+
 // Store es el subconjunto de la base de datos que necesita el servicio.
 // Permite testear con un fake en memoria.
 type Store interface {
@@ -134,6 +141,13 @@ func (s *Service) CreateCharacter(ctx context.Context, userID int64, name, class
 		Agi:    def.Agi,
 		Vit:    def.Vit,
 		Ene:    def.Ene,
+		Gold:   500,
+		StarterItems: []model.StarterItem{
+			{Tmpl: starterWeapon[class], Qty: 1, InvX: 0, InvY: 0},
+			{Tmpl: "pot_hp", Qty: 10, InvX: 1, InvY: 0},
+			{Tmpl: "pot_mp", Qty: 10, InvX: 2, InvY: 0},
+			{Tmpl: "core_enhance", Qty: 1, InvX: 3, InvY: 0},
+		},
 	})
 	if err != nil {
 		return model.CharacterSummary{}, err

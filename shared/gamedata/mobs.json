@@ -14,7 +14,13 @@
       "attack_range": 1.4,
       "attack_interval_ms": 1500,
       "respawn_seconds": 20,
-      "passive": true
+      "passive": true,
+      "gold_min": 1,
+      "gold_max": 3,
+      "gold_chance": 0.6,
+      "loot": [
+        { "item": "pot_hp", "chance": 0.35 }
+      ]
     },
     {
       "id": "lobo",
@@ -30,7 +36,19 @@
       "attack_range": 1.6,
       "attack_interval_ms": 1300,
       "respawn_seconds": 25,
-      "passive": false
+      "passive": false,
+      "gold_min": 2,
+      "gold_max": 6,
+      "gold_chance": 0.6,
+      "loot": [
+        { "item": "pot_hp", "chance": 0.25 },
+        { "item": "leather_cap", "chance": 0.04 },
+        { "item": "leather_armor", "chance": 0.03 },
+        { "item": "leather_boots", "chance": 0.03 },
+        { "item": "sword_iron", "chance": 0.02 },
+        { "item": "bow_short", "chance": 0.02 },
+        { "item": "staff_apprentice", "chance": 0.02 }
+      ]
     },
     {
       "id": "bandido",
@@ -46,7 +64,20 @@
       "attack_range": 1.7,
       "attack_interval_ms": 1400,
       "respawn_seconds": 30,
-      "passive": false
+      "passive": false,
+      "gold_min": 6,
+      "gold_max": 15,
+      "gold_chance": 0.65,
+      "loot": [
+        { "item": "pot_hp", "chance": 0.2 },
+        { "item": "chain_helm", "chance": 0.05 },
+        { "item": "chain_armor", "chance": 0.04 },
+        { "item": "chain_boots", "chance": 0.04 },
+        { "item": "core_enhance", "chance": 0.08 },
+        { "item": "sword_steel", "chance": 0.03 },
+        { "item": "bow_hunter", "chance": 0.03 },
+        { "item": "staff_bone", "chance": 0.03 }
+      ]
     },
     {
       "id": "escorpion",
@@ -62,7 +93,20 @@
       "attack_range": 1.8,
       "attack_interval_ms": 1500,
       "respawn_seconds": 40,
-      "passive": false
+      "passive": false,
+      "gold_min": 12,
+      "gold_max": 25,
+      "gold_chance": 0.7,
+      "loot": [
+        { "item": "pot_mp", "chance": 0.2 },
+        { "item": "chain_gloves", "chance": 0.06 },
+        { "item": "plate_helm", "chance": 0.03 },
+        { "item": "plate_gloves", "chance": 0.03 },
+        { "item": "core_enhance", "chance": 0.12 },
+        { "item": "sword_steel", "chance": 0.04 },
+        { "item": "bow_hunter", "chance": 0.04 },
+        { "item": "staff_bone", "chance": 0.04 }
+      ]
     },
     {
       "id": "golem",
@@ -78,7 +122,19 @@
       "attack_range": 2.2,
       "attack_interval_ms": 2000,
       "respawn_seconds": 300,
-      "passive": false
+      "passive": false,
+      "gold_min": 50,
+      "gold_max": 100,
+      "gold_chance": 1.0,
+      "loot": [
+        { "item": "core_enhance", "chance": 0.8 },
+        { "item": "plate_armor", "chance": 0.15 },
+        { "item": "plate_helm", "chance": 0.1 },
+        { "item": "plate_boots", "chance": 0.1 },
+        { "item": "sword_steel", "chance": 0.1 },
+        { "item": "bow_hunter", "chance": 0.1 },
+        { "item": "staff_bone", "chance": 0.1 }
+      ]
     }
   ]
 }

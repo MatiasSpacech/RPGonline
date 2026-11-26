@@ -5,6 +5,7 @@ extends CanvasLayer
 
 signal potion_requested(kind: String)
 signal alloc_stat_requested(stat: String)
+signal inventory_requested
 
 var _root: Control
 var _status: Label
@@ -21,6 +22,7 @@ var _xp_label: Label
 var _hp_potion_button: Button
 var _mp_potion_button: Button
 var _points_label: Label
+var _combat_label: Label
 var _stat_labels := {}
 var _stat_buttons := {}
 
@@ -148,6 +150,12 @@ func _build_bottom_right() -> void:
 	box.add_theme_constant_override("separation", 7)
 	margin.add_child(box)
 
+	var inventory_button := Button.new()
+	inventory_button.text = "Inventario [I]"
+	inventory_button.focus_mode = Control.FOCUS_NONE
+	inventory_button.pressed.connect(func(): inventory_requested.emit())
+	box.add_child(inventory_button)
+
 	var potions := HBoxContainer.new()
 	potions.add_theme_constant_override("separation", 8)
 	box.add_child(potions)
@@ -201,6 +209,13 @@ func _build_bottom_right() -> void:
 		grid.add_child(plus)
 		_stat_buttons[stat_id] = plus
 
+	_combat_label = Label.new()
+	_combat_label.text = "ATK — · DEF —"
+	_combat_label.add_theme_font_size_override("font_size", 12)
+	_combat_label.add_theme_color_override("font_color", Color(0.8, 0.85, 0.95))
+	_combat_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_child(_combat_label)
+
 	_root.add_child(panel)
 	panel.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT, Control.PRESET_MODE_MINSIZE, 24)
 
@@ -244,6 +259,7 @@ func reset() -> void:
 	for stat_id in _stat_labels:
 		_stat_labels[stat_id].text = "%s 0" % str(stat_id).to_upper()
 		_stat_buttons[stat_id].disabled = true
+	_combat_label.text = "ATK — · DEF —"
 	_toast_token += 1
 	_toast.visible = false
 
@@ -275,6 +291,11 @@ func update_self_state(state: Dictionary) -> void:
 	_stat_labels["ene"].text = "ENE %d" % int(state.get("ene", 0))
 	for stat_id in _stat_buttons:
 		_stat_buttons[stat_id].disabled = points <= 0
+	_combat_label.text = "ATK %d-%d · DEF %d" % [
+		int(state.get("attack_min", 0)),
+		int(state.get("attack_max", 0)),
+		int(state.get("defense", 0)),
+	]
 
 
 func toast(text: String, color: Color = Color.WHITE) -> void:

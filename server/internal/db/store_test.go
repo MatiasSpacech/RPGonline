@@ -80,10 +80,15 @@ func TestCharacterLifecycle(t *testing.T) {
 	user := newUser(t, s, "matias")
 
 	chars := make([]model.CharacterSummary, 0, 3)
-	for i, name := range []string{"Kaen", "Lyr", "Nyx"} {
+	for _, name := range []string{"Kaen", "Lyr", "Nyx"} {
 		c, err := s.CreateCharacter(ctx, model.CreateCharacterParams{
 			UserID: user.ID, Name: name, Class: model.ClassWarrior,
 			Str: 28, Agi: 20, Vit: 25, Ene: 10,
+			Gold: 500,
+			StarterItems: []model.StarterItem{
+				{Tmpl: "sword_iron", Qty: 1, InvX: 0, InvY: 0},
+				{Tmpl: "pot_hp", Qty: 10, InvX: 1, InvY: 0},
+			},
 		})
 		if err != nil {
 			t.Fatalf("CreateCharacter(%s): %v", name, err)
@@ -91,7 +96,14 @@ func TestCharacterLifecycle(t *testing.T) {
 		if c.ID == 0 || c.UserID != user.ID || c.Level != 1 || c.MapID != "llanuras" {
 			t.Fatalf("personaje = %+v", c)
 		}
-		_ = i
+		if c.Gold != 500 || len(c.Items) != 2 {
+			t.Fatalf("kit inicial = gold %d, items %d", c.Gold, len(c.Items))
+		}
+		for _, it := range c.Items {
+			if it.ID == 0 || it.CharacterID != c.ID || it.Qty < 1 {
+				t.Fatalf("ítem inicial inválido = %+v", it)
+			}
+		}
 		chars = append(chars, c.Summary())
 	}
 
@@ -128,12 +140,17 @@ func TestCharacterLifecycle(t *testing.T) {
 	if loaded.Str != 28 || loaded.Agi != 20 || loaded.Vit != 25 || loaded.Ene != 10 {
 		t.Fatalf("stats cargados = %+v", loaded)
 	}
+	if len(loaded.Items) != 2 {
+		t.Fatalf("inventario cargado = %d ítems, quería 2", len(loaded.Items))
+	}
 
-	// Guardar posición y progreso, y verificar que persisten.
+	// Equipar la espada y mejorarla, luego guardar posición + progreso + ítems.
+	loaded.Items[0].EquippedSlot = "weapon"
+	loaded.Items[0].Enhance = 3
 	if err := s.SaveCharacterState(ctx, model.CharacterState{
 		CharacterID: loaded.ID, MapID: "llanuras", X: 12.5, Y: 0, Z: -3.25,
 		Level: 3, XP: 42, Str: 33, Agi: 21, Vit: 30, Ene: 12,
-		StatPoints: 2, Gold: 123,
+		StatPoints: 2, Gold: 123, Items: loaded.Items,
 	}); err != nil {
 		t.Fatalf("SaveCharacterState: %v", err)
 	}
@@ -146,6 +163,13 @@ func TestCharacterLifecycle(t *testing.T) {
 	}
 	if reloaded.Level != 3 || reloaded.XP != 42 || reloaded.Str != 33 || reloaded.StatPoints != 2 || reloaded.Gold != 123 {
 		t.Fatalf("progreso guardado = %+v", reloaded)
+	}
+	if len(reloaded.Items) != 2 {
+		t.Fatalf("ítems guardados = %d, quería 2", len(reloaded.Items))
+	}
+	weapon := reloaded.Items[0]
+	if weapon.EquippedSlot != "weapon" || weapon.Enhance != 3 {
+		t.Fatalf("arma guardada = %+v", weapon)
 	}
 
 	if err := s.DeleteCharacter(ctx, user.ID, chars[0].ID); err != nil {
