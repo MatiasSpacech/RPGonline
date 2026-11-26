@@ -19,7 +19,7 @@
 | Persistencia | PostgreSQL vía `pgx` | Relacional y aburrido de la mejor manera: cuentas, personajes e ítems encajan natural en tablas |
 | Datos estáticos del juego | Archivos versionados en el repo (JSON), NO en la BD | Ítems, mobs, XP tables y skills son contenido: se versionan con el código y se comparten entre servidor y cliente |
 | Tick del servidor | 20 Hz simulación, snapshots 10 Hz | Suficientemente responsivo para click-to-move RPG; barato en CPU y ancho de banda |
-| MVP "online pequeño" | 1 proceso servidor, 1 mapa por proceso, broadcast por mapa | A 64 jugadores no hace falta interest management sofisticado; se documenta el camino de crecimiento |
+| MVP "online pequeño" | 1 proceso servidor, 3 mapas lógicos con snapshots filtrados por mapa | A 64 jugadores no hace falta interest management sofisticado; se documenta el camino de crecimiento |
 
 ## Lo que NO es (no-objetivos del MVP)
 

@@ -1,0 +1,35 @@
+{
+  "id": "catacumbas",
+  "name": "Catacumbas de Óxido",
+  "theme": "dungeon",
+  "safe": false,
+  "level_req": 13,
+  "player_spawn": { "x": 0, "z": 0 },
+  "portals": [
+    {
+      "id": "to_town",
+      "name": "Refugio de Piedra",
+      "x": 0, "z": 8,
+      "target": "refugio",
+      "target_x": 6, "target_z": 2,
+      "level_req": 1
+    }
+  ],
+  "spawns": [
+    { "mob": "esqueleto", "x": -10, "z": -6 },
+    { "mob": "esqueleto", "x": -8, "z": 4 },
+    { "mob": "esqueleto", "x": 8, "z": -8 },
+    { "mob": "esqueleto", "x": 10, "z": 3 },
+    { "mob": "esqueleto", "x": -4, "z": 10 },
+    { "mob": "esqueleto", "x": 4, "z": -12 },
+    { "mob": "esqueleto", "x": 12, "z": 8 },
+    { "mob": "esqueleto", "x": -12, "z": 10 },
+    { "mob": "cultista", "x": -14, "z": 0 },
+    { "mob": "cultista", "x": 14, "z": -4 },
+    { "mob": "cultista", "x": 0, "z": 14 },
+    { "mob": "caballero", "x": -9, "z": -12 },
+    { "mob": "caballero", "x": 9, "z": 10 },
+    { "mob": "caballero", "x": 0, "z": -15 },
+    { "mob": "carcelero", "x": 0, "z": -18 }
+  ]
+}

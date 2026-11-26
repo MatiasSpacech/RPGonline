@@ -99,6 +99,8 @@ Regla de oro: **el cliente solo muestra el resultado**, nunca calcula nada de es
 | Arquera | Flecha Curativa | 12 | Cura al objetivo aliado 25% del daño de arco, CD 15 s |
 | Arquera | Multidisparo | 20 | Golpea a 4 enemigos del target a 9 m, x0.8, CD 12 s |
 
+> **Implementación F5**: las skills se auto-desbloquean por nivel (sin árbol de aprendizaje todavía). Grito de Guerra es buff propio hasta que exista party (F6); Flecha Curativa se auto-cura (sin aliados aún); Teletransporte salta hasta 6 m al punto clickeado. El daño escala con arma/stats y el multiplicador de la skill, con maná y cooldown validados server-side.
+
 ## 5. Ítems
 
 ### 5.1 Estructura
@@ -163,6 +165,8 @@ IA MVP = máquina de estados simple: `idle → (jugador en radio de agro) → ch
 | **Refugio de Piedra** | Ciudad, 100% segura | 1–30 | Hub: vendedores, banco visual, portales. Sin combate. |
 | **Llanuras Quebradas** | Campo abierto | 1–12 | Primer mapa de caza, estilo pradera con ruinas. Portal desde la ciudad. Mini-boss al fondo. |
 | **Catacumbas de Óxido** | Mazmorra | 13–25 | Corredores y salas, más oscura, densidad de mobs mayor, boss final. |
+
+> **Implementación F5**: Refugio es zona segura con portales; Llanuras y Catacumbas comparten los límites del plano (±19 m) y la cámara, pero cambian tema visual, spawns y peligro. El portal a Catacumbas exige nivel 13 y todos los mapas tienen portal de retorno. Las paredes de la mazmorra son visuales (colisión server-side pendiente).
 
 - Portal = trigger cilíndrico + confirmación de nivel mínimo.
 - Respawn al morir: siempre ciudad (MVP, sin puntos de guardado).

@@ -20,6 +20,8 @@ signal levelup_received(data: Dictionary)
 signal teleport_received(data: Dictionary)
 signal inventory_received(data: Dictionary)
 signal enhance_result_received(data: Dictionary)
+signal skill_cast_received(data: Dictionary)
+signal skill_effect_received(data: Dictionary)
 
 enum State { DISCONNECTED, CONNECTING, CONNECTED }
 
@@ -108,6 +110,14 @@ func shop_sell(item_id: int) -> void:
 
 func move_item(item_id: int, x: int, y: int) -> void:
 	_send({"t": "inv_move", "d": {"item_id": item_id, "x": x, "y": y}})
+
+
+func use_portal(portal_id: String) -> void:
+	_send({"t": "portal", "d": {"id": portal_id}})
+
+
+func use_skill(skill_id: String, target_id: int = 0, x: float = 0.0, z: float = 0.0) -> void:
+	_send({"t": "use_skill", "d": {"skill_id": skill_id, "target": target_id, "x": x, "z": z}})
 
 
 func _process(delta: float) -> void:
@@ -234,6 +244,10 @@ func _handle_packet(packet: PackedByteArray) -> void:
 			inventory_received.emit(d)
 		"enhance_result":
 			enhance_result_received.emit(d)
+		"skill_cast":
+			skill_cast_received.emit(d)
+		"skill_effect":
+			skill_effect_received.emit(d)
 		"err":
 			var code := str(d.get("code", "error"))
 			var message := str(d.get("msg", "Error del servidor"))

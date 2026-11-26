@@ -1,5 +1,5 @@
-// Package gamedata carga el contenido estático del juego (ítems, mobs,
-// spawns). Vive en shared/gamedata y se valida al arrancar: un dato roto
+// Package gamedata carga el contenido estático del juego (ítems, mobs, mapas,
+// skills). Vive en shared/gamedata y se valida al arrancar: un dato roto
 // rompe el startup, no la partida (ver docs/03-arquitectura.md).
 package gamedata
 
@@ -8,6 +8,9 @@ import (
 	"fmt"
 	"io/fs"
 	"math"
+	"path"
+	"sort"
+	"strings"
 )
 
 // ItemTemplate es una plantilla de ítem (equipo o consumible).
@@ -46,7 +49,7 @@ type LootEntry struct {
 	Chance float64 `json:"chance"`
 }
 
-// Mob es una plantilla de mob (stats base, IA, respawn, loot).
+// Mob es una plantilla de mob (stats base, IA, respawn, loot y mecánicas de boss).
 type Mob struct {
 	ID               string      `json:"id"`
 	Name             string      `json:"name"`
@@ -66,6 +69,14 @@ type Mob struct {
 	GoldMin          int64       `json:"gold_min,omitempty"`
 	GoldMax          int64       `json:"gold_max,omitempty"`
 	GoldChance       float64     `json:"gold_chance,omitempty"`
+
+	// Mecánicas de boss (opcionales).
+	SummonAtPercent int     `json:"summon_at_percent,omitempty"` // 0 = sin summon
+	SummonMob       string  `json:"summon_mob,omitempty"`
+	SummonCount     int     `json:"summon_count,omitempty"`
+	EnrageAtPercent int     `json:"enrage_at_percent,omitempty"` // 0 = sin enrage
+	EnrageSpeedMult float64 `json:"enrage_speed_mult,omitempty"`
+	EnrageDmgMult   float64 `json:"enrage_damage_mult,omitempty"`
 }
 
 // Spawn es un punto de aparición de un mob en un mapa.
@@ -75,22 +86,69 @@ type Spawn struct {
 	Z   float64 `json:"z"`
 }
 
-// MapSpawns es el archivo de un mapa (por ahora solo spawns).
-type MapSpawns struct {
-	ID     string  `json:"id"`
-	Spawns []Spawn `json:"spawns"`
+// Vec2 es una posición X/Z en el plano.
+type Vec2 struct {
+	X float64 `json:"x"`
+	Z float64 `json:"z"`
+}
+
+// Portal conecta dos mapas con un requisito de nivel.
+type Portal struct {
+	ID       string  `json:"id"`
+	Name     string  `json:"name"`
+	X        float64 `json:"x"`
+	Z        float64 `json:"z"`
+	Target   string  `json:"target"`
+	TargetX  float64 `json:"target_x"`
+	TargetZ  float64 `json:"target_z"`
+	LevelReq int     `json:"level_req"`
+}
+
+// Map es un mapa jugable con sus spawns y portales.
+type Map struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Theme       string   `json:"theme"` // town | field | dungeon
+	Safe        bool     `json:"safe"`
+	LevelReq    int      `json:"level_req"`
+	PlayerSpawn Vec2     `json:"player_spawn"`
+	Portals     []Portal `json:"portals,omitempty"`
+	Spawns      []Spawn  `json:"spawns,omitempty"`
+}
+
+// Skill es una habilidad de clase.
+type Skill struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Class    string `json:"class"`
+	LevelReq int    `json:"level_req"`
+
+	ManaCost   int `json:"mana_cost"`
+	CooldownMS int `json:"cooldown_ms"`
+
+	Kind       string  `json:"kind"` // single | aoe | heal | buff | teleport
+	Multiplier float64 `json:"multiplier,omitempty"`
+	Hits       int     `json:"hits,omitempty"`
+	Range      float64 `json:"range,omitempty"`
+	Radius     float64 `json:"radius,omitempty"`
+	MaxTargets int     `json:"max_targets,omitempty"`
+
+	HealPercent      int     `json:"heal_percent,omitempty"`
+	BuffPercent      int     `json:"buff_percent,omitempty"`
+	BuffDurationMS   int     `json:"buff_duration_ms,omitempty"`
+	TeleportDistance float64 `json:"teleport_distance,omitempty"`
 }
 
 // Data es el contenido estático cargado y validado.
 type Data struct {
-	MapID  string
 	Mobs   map[string]Mob
 	Items  map[string]ItemTemplate
-	Spawns []Spawn
+	Skills map[string]Skill
+	Maps   map[string]Map
 }
 
-// Load lee y valida items.json, mobs.json y el archivo de spawns del mapa.
-func Load(fsys fs.FS, itemsPath, mobsPath, spawnsPath string) (*Data, error) {
+// Load lee y valida los archivos de contenido.
+func Load(fsys fs.FS, itemsPath, mobsPath, skillsPath, mapsDir string) (*Data, error) {
 	items, err := loadItems(fsys, itemsPath)
 	if err != nil {
 		return nil, err
@@ -99,11 +157,15 @@ func Load(fsys fs.FS, itemsPath, mobsPath, spawnsPath string) (*Data, error) {
 	if err != nil {
 		return nil, err
 	}
-	mapFile, err := loadSpawns(fsys, spawnsPath, mobs)
+	skills, err := loadSkills(fsys, skillsPath)
 	if err != nil {
 		return nil, err
 	}
-	return &Data{MapID: mapFile.ID, Mobs: mobs, Items: items, Spawns: mapFile.Spawns}, nil
+	maps, err := loadMaps(fsys, mapsDir, mobs)
+	if err != nil {
+		return nil, err
+	}
+	return &Data{Mobs: mobs, Items: items, Skills: skills, Maps: maps}, nil
 }
 
 func loadItems(fsys fs.FS, path string) (map[string]ItemTemplate, error) {
@@ -164,33 +226,84 @@ func loadMobs(fsys fs.FS, path string, items map[string]ItemTemplate) (map[strin
 		}
 		mobs[m.ID] = m
 	}
+	for _, m := range mobs {
+		if m.SummonMob != "" {
+			if _, ok := mobs[m.SummonMob]; !ok {
+				return nil, fmt.Errorf("gamedata: mob %q invoca un mob inexistente %q", m.ID, m.SummonMob)
+			}
+		}
+	}
 	return mobs, nil
 }
 
-func loadSpawns(fsys fs.FS, path string, mobs map[string]Mob) (MapSpawns, error) {
+func loadSkills(fsys fs.FS, path string) (map[string]Skill, error) {
 	raw, err := fs.ReadFile(fsys, path)
 	if err != nil {
-		return MapSpawns{}, fmt.Errorf("gamedata: leyendo %s: %w", path, err)
+		return nil, fmt.Errorf("gamedata: leyendo %s: %w", path, err)
 	}
-	var mapFile MapSpawns
-	if err := json.Unmarshal(raw, &mapFile); err != nil {
-		return MapSpawns{}, fmt.Errorf("gamedata: JSON inválido en %s: %w", path, err)
+	var file struct {
+		Skills []Skill `json:"skills"`
 	}
-	if mapFile.ID == "" {
-		return MapSpawns{}, fmt.Errorf("gamedata: %s sin id de mapa", path)
+	if err := json.Unmarshal(raw, &file); err != nil {
+		return nil, fmt.Errorf("gamedata: JSON inválido en %s: %w", path, err)
 	}
-	if len(mapFile.Spawns) == 0 {
-		return MapSpawns{}, fmt.Errorf("gamedata: %s no define spawns", path)
+	if len(file.Skills) == 0 {
+		return nil, fmt.Errorf("gamedata: %s no define skills", path)
 	}
-	for i, s := range mapFile.Spawns {
-		if _, ok := mobs[s.Mob]; !ok {
-			return MapSpawns{}, fmt.Errorf("gamedata: spawn %d referencia un mob inexistente %q", i, s.Mob)
+
+	skills := make(map[string]Skill, len(file.Skills))
+	for _, s := range file.Skills {
+		if err := validateSkill(s); err != nil {
+			return nil, fmt.Errorf("gamedata: skill %q: %w", s.ID, err)
 		}
-		if !finite(s.X) || !finite(s.Z) {
-			return MapSpawns{}, fmt.Errorf("gamedata: spawn %d tiene coordenadas inválidas", i)
+		if _, exists := skills[s.ID]; exists {
+			return nil, fmt.Errorf("gamedata: skill duplicada %q", s.ID)
+		}
+		skills[s.ID] = s
+	}
+	return skills, nil
+}
+
+func loadMaps(fsys fs.FS, dir string, mobs map[string]Mob) (map[string]Map, error) {
+	entries, err := fs.ReadDir(fsys, dir)
+	if err != nil {
+		return nil, fmt.Errorf("gamedata: leyendo %s: %w", dir, err)
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
+
+	maps := make(map[string]Map)
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		filePath := path.Join(dir, entry.Name())
+		raw, err := fs.ReadFile(fsys, filePath)
+		if err != nil {
+			return nil, fmt.Errorf("gamedata: leyendo %s: %w", filePath, err)
+		}
+		var m Map
+		if err := json.Unmarshal(raw, &m); err != nil {
+			return nil, fmt.Errorf("gamedata: JSON inválido en %s: %w", filePath, err)
+		}
+		if err := validateMap(m, mobs); err != nil {
+			return nil, fmt.Errorf("gamedata: mapa %q: %w", m.ID, err)
+		}
+		if _, exists := maps[m.ID]; exists {
+			return nil, fmt.Errorf("gamedata: mapa duplicado %q", m.ID)
+		}
+		maps[m.ID] = m
+	}
+	if len(maps) == 0 {
+		return nil, fmt.Errorf("gamedata: %s no define mapas", dir)
+	}
+	for _, m := range maps {
+		for _, portal := range m.Portals {
+			if _, ok := maps[portal.Target]; !ok {
+				return nil, fmt.Errorf("gamedata: portal %q de %q apunta a un mapa inexistente %q", portal.ID, m.ID, portal.Target)
+			}
 		}
 	}
-	return mapFile, nil
+	return maps, nil
 }
 
 func validateItem(it ItemTemplate) error {
@@ -279,6 +392,14 @@ func validateMob(m Mob) error {
 		return fmt.Errorf("rango de oro inválido")
 	case m.GoldChance < 0 || m.GoldChance > 1:
 		return fmt.Errorf("gold_chance debe estar entre 0 y 1")
+	case m.SummonAtPercent < 0 || m.SummonAtPercent > 100:
+		return fmt.Errorf("summon_at_percent inválido")
+	case m.SummonAtPercent > 0 && (m.SummonMob == "" || m.SummonCount < 1):
+		return fmt.Errorf("summon incompleto")
+	case m.EnrageAtPercent < 0 || m.EnrageAtPercent > 100:
+		return fmt.Errorf("enrage_at_percent inválido")
+	case m.EnrageAtPercent > 0 && (m.EnrageSpeedMult < 1 || m.EnrageDmgMult < 1):
+		return fmt.Errorf("enrage incompleto")
 	}
 	for i, l := range m.Loot {
 		if l.Item == "" {
@@ -286,6 +407,95 @@ func validateMob(m Mob) error {
 		}
 		if l.Chance <= 0 || l.Chance > 1 {
 			return fmt.Errorf("loot %d con chance inválida", i)
+		}
+	}
+	return nil
+}
+
+func validateSkill(s Skill) error {
+	if s.ID == "" || s.Name == "" {
+		return fmt.Errorf("id/name vacío")
+	}
+	switch s.Class {
+	case "warrior", "mage", "archer":
+	default:
+		return fmt.Errorf("class inválida")
+	}
+	if s.LevelReq < 1 {
+		return fmt.Errorf("level_req debe ser >= 1")
+	}
+	if s.ManaCost < 0 {
+		return fmt.Errorf("mana_cost no puede ser negativo")
+	}
+	if s.CooldownMS <= 0 {
+		return fmt.Errorf("cooldown_ms debe ser > 0")
+	}
+	switch s.Kind {
+	case "single", "aoe":
+		if s.Multiplier <= 0 || s.Range <= 0 {
+			return fmt.Errorf("skill de daño sin multiplier/range")
+		}
+		if s.Hits < 1 {
+			s.Hits = 1
+		}
+		if s.Kind == "aoe" && (s.Radius <= 0 || s.MaxTargets < 1) {
+			return fmt.Errorf("aoe sin radius/max_targets")
+		}
+	case "heal":
+		if s.HealPercent < 1 || s.HealPercent > 100 {
+			return fmt.Errorf("heal_percent inválido")
+		}
+	case "buff":
+		if s.BuffPercent < 1 || s.BuffDurationMS <= 0 {
+			return fmt.Errorf("buff inválido")
+		}
+	case "teleport":
+		if s.TeleportDistance <= 0 {
+			return fmt.Errorf("teleport_distance inválido")
+		}
+	default:
+		return fmt.Errorf("kind inválido %q", s.Kind)
+	}
+	return nil
+}
+
+func validateMap(m Map, mobs map[string]Mob) error {
+	if m.ID == "" || m.Name == "" {
+		return fmt.Errorf("id/name vacío")
+	}
+	switch m.Theme {
+	case "town", "field", "dungeon":
+	default:
+		return fmt.Errorf("theme inválido %q", m.Theme)
+	}
+	if m.LevelReq < 1 {
+		return fmt.Errorf("level_req debe ser >= 1")
+	}
+	if !finite(m.PlayerSpawn.X) || !finite(m.PlayerSpawn.Z) {
+		return fmt.Errorf("player_spawn inválido")
+	}
+	portalIDs := make(map[string]bool)
+	for i, s := range m.Spawns {
+		if _, ok := mobs[s.Mob]; !ok {
+			return fmt.Errorf("spawn %d referencia un mob inexistente %q", i, s.Mob)
+		}
+		if !finite(s.X) || !finite(s.Z) {
+			return fmt.Errorf("spawn %d tiene coordenadas inválidas", i)
+		}
+	}
+	for _, p := range m.Portals {
+		if p.ID == "" || p.Name == "" || p.Target == "" {
+			return fmt.Errorf("portal incompleto")
+		}
+		if portalIDs[p.ID] {
+			return fmt.Errorf("portal duplicado %q", p.ID)
+		}
+		portalIDs[p.ID] = true
+		if !finite(p.X) || !finite(p.Z) || !finite(p.TargetX) || !finite(p.TargetZ) {
+			return fmt.Errorf("portal %q con coordenadas inválidas", p.ID)
+		}
+		if p.LevelReq < 1 {
+			return fmt.Errorf("portal %q con level_req inválido", p.ID)
 		}
 	}
 	return nil

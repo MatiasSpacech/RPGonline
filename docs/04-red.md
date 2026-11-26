@@ -29,7 +29,7 @@ Sobre JSON mínimo:
 
 ## 3. Catálogo de mensajes MVP
 
-> **Implementado hasta F4**: auth/lobby, movimiento, combate, stats, botín/inventario/equipo/tienda y mejora +N. El resto del catálogo es el objetivo del MVP.
+> **Implementado hasta F5**: auth/lobby, movimiento, combate, stats, botín/inventario/equipo/tienda, mejora +N, mapas/portales y skills. El resto del catálogo es el objetivo del MVP.
 
 ### C → S (acciones: el cliente *pide*)
 
@@ -53,7 +53,8 @@ Sobre JSON mínimo:
 | `enhance` | { item_id } | intento de mejora +N (consume núcleo + oro) |
 | `shop_buy` | { tmpl, qty } | compra consumibles |
 | `shop_sell` | { item_id } | vende un ítem del inventario |
-| `skill` | { skillId, target } | target opcional para heals/self (F5) |
+| `portal` | { id } | viaja por un portal (valida distancia y nivel) |
+| `use_skill` | { skill_id, target, x, z } | target opcional (mob); X/Z para teletransporte |
 | `chat` | { ch, msg, to? } | ch ∈ global, party, whisper (F6) |
 | `party_inv` / `party_accept` | { charId } | (F6) |
 | `portal` | { portalId } | cambio de mapa (F5) |
@@ -65,8 +66,8 @@ Sobre JSON mínimo:
 |---|---|---|
 | `login_ok` | { token, user, chars } | token para `resume` + lista de personajes |
 | `char_created` / `char_deleted` | { char } / { char_id } | actualizan el lobby |
-| `welcome` | { self, character, map, tick_rate, snapshot_rate, game_data } | `game_data.items` trae las plantillas de ítems |
-| `snapshot` | { tick, ents } | ver §4 (incluye drops) |
+| `welcome` | { self, character, map, tick_rate, snapshot_rate, game_data } | `game_data` trae ítems, skills y mapas con portales |
+| `snapshot` | { tick, ents } | ver §4 (incluye drops; filtrado por mapa) |
 | `pong` | { server_time_ms } | respuesta al ping (RTT) |
 | `self_state` | { hp, hp_max, mp, mp_max, xp, xp_next, level, str, agi, vit, ene, stat_points, hp_potions, mp_potions, attack_min, attack_max, defense, attack_interval_ms } | HUD: al entrar y cuando cambia algo |
 | `dmg` | { src, dst, amount, crit, kind } | números flotantes; kind ∈ out/in/dodge |
@@ -74,16 +75,18 @@ Sobre JSON mínimo:
 | `death` | { xp_lost } | moriste; después llega `teleport` |
 | `inventory` | { gold, items } | estado completo del inventario (incluye equipados) |
 | `enhance_result` | { item_id, success, new_enhance, destroyed } | momento de tensión |
+| `skill_cast` | { skill_id, cooldown_ms } | confirma lanzamiento y arranca cooldown |
+| `skill_effect` | { skill_id, caster, x, z, radius, kind } | evento visual para el mapa |
 | `chat` | { ch, from, msg } | (F6) |
 | `party_state` | { members } | (F6) |
 | `levelup` | { level, stat_points } | visual fanfarria |
-| `teleport` | { map, x, y, z } | respawn |
+| `teleport` | { map, x, y, z } | cambio de mapa/respawn; el cliente recarga la vista |
 | `err` | { code, msg } | errores de auth/lobby/mundo; logueado server-side |
 
 ## 4. Sincronización de entidades
 
 - Servidor simula a **20 Hz** (tick 50 ms) y envía **snapshots a 10 Hz** (cada 2 ticks).
-- Snapshot incluye entidades "activas" del mapa del jugador: jugadores, mobs vivos, drops en el suelo. En MVP se envían todos (broadcast por mapa); a 64 jugadores esto es aceptable (decenas de KB/s). Interés por área = post-MVP.
+- Snapshot incluye entidades "activas" del mapa del jugador: jugadores, mobs vivos y drops. El servidor arma un snapshot por mapa y lo envía solo a sus jugadores (broadcast por mapa); a 64 jugadores esto es aceptable (decenas de KB/s). Interés por área = post-MVP.
 
 ```json
 { "t": "snapshot", "d": {

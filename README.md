@@ -2,7 +2,7 @@
 
 MMORPG 3D de acción **inspirado en MU Online** (dark fantasy, grind satisfactorio, mejora de ítems +N, click-to-move) pero con nombres, arte y diseño propios. Online a escala pequeña: **8–64 jugadores concurrentes por servidor**, con arquitectura que puede crecer después.
 
-> Estado: **F4 completado** · drops, inventario 8×5, equipamiento con requisitos, mejora +N con riesgo, oro y vendedor. Siguiente: **F5 — mapas, clases y skills**.
+> Estado: **F5 completado** (mecánicas) · 3 mapas con portales y safe zone, mobs de mazmorra, bosses con mecánicas y 9 skills con maná/cooldown. Arte low-poly real aún pendiente. Siguiente: **F6 — social y game feel**.
 
 ## Stack decidido
 
@@ -36,44 +36,47 @@ MMORPG 3D de acción **inspirado en MU Online** (dark fantasy, grind satisfactor
 3. **F2 ✅** – Cuentas y personajes persistentes (login + Postgres)
 4. **F3 ✅** – Combate contra mobs, XP y niveles
 5. **F4 ✅** – Loot, inventario, equipamiento y mejora +N
-6. **F5** – Mapas múltiples, clases y skills
+6. **F5 ✅** – Mapas múltiples, clases y skills
 7. **F6** – Chat, party, muerte, balance
 8. **F7** – Despliegue y playtest con amigos
 
-## Correr el juego (F4 — botín e ítems)
+## Correr el juego (F5 — mapas, clases y skills)
 
 Requisitos: Go 1.27+ y Godot 4.7+ (instalados en `~/.local`; `~/.bashrc` ya agrega `~/.local/go/bin` y `~/.local/bin` al PATH — abrí una terminal nueva o `source ~/.bashrc`).
 
 ```bash
 # Terminal 1 — base de datos (PostgreSQL 16 embebido, sin Docker ni sudo)
 make devdb
-#    esperá el mensaje "Postgres listo: postgres://..."
 
-# Terminal 2 — servidor (aplica migraciones y carga shared/gamedata)
-make server          # ws://127.0.0.1:8080/ws · healthz: :8080/healthz
+# Terminal 2 — servidor (migraciones + shared/gamedata)
+make server          # ws://127.0.0.1:8080/ws
 
-# Terminal 3 — cliente Godot (una o dos ventanas)
+# Terminal 3 — cliente Godot
 godot --path client
 ```
 
-Cada personaje nuevo recibe un **kit inicial**: arma de su clase, 10 pociones de HP, 10 de MP, 1 Núcleo de mejora y **500 de oro**.
+Cada personaje nuevo aparece en **Refugio de Piedra** (zona segura) con su kit inicial.
 
-Controles y loop:
+Mapas y loop:
 
-- **Click en el suelo** → caminar. **Click en un mob** → auto-ataque.
-- **Click en un drop** (caja brillante) → recogerlo; si estás lejos, tu personaje camina hasta él.
-- **I** o **Inventario** → mochila 8×5, equipo, oro, detalle y tienda. Click en un ítem para ver sus stats/requisitos; arrastrá para reordenar.
-- **Equipar** usa clase + requisitos de stats; **Mejorar** consume 1 Núcleo + oro: a partir de +7 un fallo baja un nivel y desde +10 hay 5% de destrucción.
-- **Tienda**: comprá pociones/núcleos, vendé ítems (30% del valor, ajustado por rareza y mejora).
-- Los mobs sueltan **oro e ítems** (loot tables en `shared/gamedata/`); las rarezas (común/bueno/raro/épico/legendario) se ven por color.
-- Todo (inventario, equipo, mejoras y oro) persiste en PostgreSQL.
+- **Refugio de Piedra**: hub seguro (no se puede atacar), vendedor e inventario. Portal oeste → **Llanuras Quebradas**; portal este → **Catacumbas de Óxido** (requiere nivel 13).
+- **Llanuras**: campo abierto con babosas, lobos, bandidos, escorpiones y el **Golem** (se enfurece bajo 30% de HP).
+- **Catacumbas**: esqueletos, cultistas, caballeros y **El Carcelero**, que invoca esqueletos al 50% de HP.
+- **Click en un portal** para viajar; tu mapa y posición se guardan. Al morir revivís en la ciudad.
+- **Skills**: Q/W/E/R o la barra inferior. Se desbloquean por nivel; consumen maná y tienen cooldown.
+  - Guerrero: Tajo (3), Grito (10), Remolino (18).
+  - Mago: Bola de Fuego (1), Nova (8), Teletransporte (14).
+  - Arquera: Flecha Triple (3), Curativa (12), Multidisparo (20).
+- Inventario (**I**), equipo, mejoras +N y tienda siguen funcionando igual que en F4.
+
+> El arte sigue siendo procedural/low-poly simple (cápsulas + geometría temática). El reemplazo por modelos animados quedó diferido a la fase de pulido.
 
 Tests:
 
 ```bash
 make test            # unitarios + integración en memoria (sin DB)
 make test-db         # incluye PostgreSQL real (con `make devdb` corriendo)
-make client-autotest # headless: kit → equipar → mejorar → matar mob
+make client-autotest # headless: kit → equipar → mejorar → portal → matar mob
 ```
 
 Atajos: `make devdb`, `make server`, `make client`, `make test`, `make test-db`.

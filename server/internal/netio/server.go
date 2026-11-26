@@ -468,6 +468,35 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 			}
 			s.inbox <- world.ShopSell{SessionID: sessionID, ItemID: req.ItemID}
 
+		case "portal":
+			if !sess.inWorld {
+				continue
+			}
+			var req protocol.UsePortal
+			if err := json.Unmarshal(env.D, &req); err != nil {
+				log.Warn("portal malformado", "err", err)
+				return
+			}
+			s.inbox <- world.UsePortal{SessionID: sessionID, PortalID: req.ID}
+
+		case "use_skill":
+			if !sess.inWorld {
+				continue
+			}
+			var req protocol.UseSkill
+			if err := json.Unmarshal(env.D, &req); err != nil {
+				log.Warn("use_skill malformado", "err", err)
+				return
+			}
+			if !isFinite(req.X) || !isFinite(req.Z) {
+				log.Warn("use_skill con coordenadas inválidas")
+				return
+			}
+			s.inbox <- world.UseSkill{
+				SessionID: sessionID, SkillID: req.SkillID,
+				TargetID: req.Target, X: req.X, Z: req.Z,
+			}
+
 		default:
 			log.Debug("mensaje sin handler", "tipo", env.T)
 		}

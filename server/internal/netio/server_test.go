@@ -250,6 +250,14 @@ func TestAuthCreateAndSelectFlow(t *testing.T) {
 			v, ok := c.(world.ShopSell)
 			return ok && v.ItemID == 5
 		}},
+		{"portal", protocol.UsePortal{ID: "to_field"}, func(c world.Command) bool {
+			v, ok := c.(world.UsePortal)
+			return ok && v.PortalID == "to_field"
+		}},
+		{"use_skill", protocol.UseSkill{SkillID: "bola_fuego", Target: 9, X: 1, Z: 2}, func(c world.Command) bool {
+			v, ok := c.(world.UseSkill)
+			return ok && v.SkillID == "bola_fuego" && v.TargetID == 9 && v.X == 1 && v.Z == 2
+		}},
 	}
 	for _, tc := range itemCases {
 		send(t, conn, tc.mtype, tc.payload)

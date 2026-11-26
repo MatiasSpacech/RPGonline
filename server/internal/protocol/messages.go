@@ -76,9 +76,11 @@ type Entity struct {
 	HPMax  int     `json:"hp_max,omitempty"`
 }
 
-// GameData es el contenido estático que el cliente necesita para UI (F4).
+// GameData es el contenido estático que el cliente necesita para UI (F6).
 type GameData struct {
-	Items []gamedata.ItemTemplate `json:"items"`
+	Items  []gamedata.ItemTemplate `json:"items"`
+	Skills []gamedata.Skill        `json:"skills"`
+	Maps   []gamedata.Map          `json:"maps"`
 }
 
 // Welcome es la primera respuesta tras seleccionar un personaje.

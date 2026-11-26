@@ -36,7 +36,6 @@ func testItemTemplates() map[string]gamedata.ItemTemplate {
 
 func testItemData() *gamedata.Data {
 	return &gamedata.Data{
-		MapID: DefaultMapID,
 		Mobs:  map[string]gamedata.Mob{},
 		Items: testItemTemplates(),
 	}
@@ -226,7 +225,13 @@ func TestLootDropGoldAndPickup(t *testing.T) {
 
 	data := testItemData()
 	data.Mobs = map[string]gamedata.Mob{"dummy": spec}
-	data.Spawns = []gamedata.Spawn{{Mob: "dummy", X: 1.5, Z: 0}}
+	data.Maps = map[string]gamedata.Map{
+		DefaultMapID: {
+			ID: DefaultMapID, Name: "Test", Theme: "field", LevelReq: 1,
+			PlayerSpawn: gamedata.Vec2{},
+			Spawns:      []gamedata.Spawn{{Mob: "dummy", X: 1.5, Z: 0}},
+		},
+	}
 
 	out := make(chan []byte, 256)
 	w := testWorld(nil, data)

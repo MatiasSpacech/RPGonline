@@ -93,7 +93,7 @@ func TestCharacterLifecycle(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CreateCharacter(%s): %v", name, err)
 		}
-		if c.ID == 0 || c.UserID != user.ID || c.Level != 1 || c.MapID != "llanuras" {
+		if c.ID == 0 || c.UserID != user.ID || c.Level != 1 || c.MapID != "refugio" {
 			t.Fatalf("personaje = %+v", c)
 		}
 		if c.Gold != 500 || len(c.Items) != 2 {

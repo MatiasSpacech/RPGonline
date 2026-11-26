@@ -6,6 +6,7 @@ extends CanvasLayer
 signal potion_requested(kind: String)
 signal alloc_stat_requested(stat: String)
 signal inventory_requested
+signal skill_requested(skill_id: String)
 
 var _root: Control
 var _status: Label
@@ -29,6 +30,15 @@ var _stat_buttons := {}
 var _toast: Label
 var _toast_token := 0
 
+var _skill_bar: HBoxContainer
+var _skill_buttons := {}
+var _skill_defs := {}
+var _skill_base_text := {}
+var _skill_ready_ms := {}
+var _skill_ids: Array = []
+var _player_level := 1
+var _player_mp := 0
+
 
 func _ready() -> void:
 	_build()
@@ -43,6 +53,7 @@ func _build() -> void:
 	_build_top_left()
 	_build_bottom_left()
 	_build_bottom_right()
+	_build_skill_bar()
 	_build_toast()
 
 
@@ -220,6 +231,13 @@ func _build_bottom_right() -> void:
 	panel.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT, Control.PRESET_MODE_MINSIZE, 24)
 
 
+func _build_skill_bar() -> void:
+	_skill_bar = HBoxContainer.new()
+	_skill_bar.add_theme_constant_override("separation", 8)
+	_skill_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_root.add_child(_skill_bar)
+
+
 func _build_toast() -> void:
 	_toast = Label.new()
 	_toast.set_anchors_preset(Control.PRESET_CENTER_TOP)
@@ -240,6 +258,75 @@ func _build_toast() -> void:
 
 func set_status(text: String) -> void:
 	_status.text = text
+
+
+func set_skills(skills: Array) -> void:
+	for child in _skill_bar.get_children():
+		child.queue_free()
+	_skill_buttons.clear()
+	_skill_defs.clear()
+	_skill_base_text.clear()
+	_skill_ready_ms.clear()
+	_skill_ids.clear()
+
+	var keys := ["Q", "W", "E", "R"]
+	var index := 0
+	for entry in skills:
+		if not (entry is Dictionary):
+			continue
+		var def: Dictionary = entry
+		var skill_id := str(def.get("id", ""))
+		if skill_id == "":
+			continue
+		var key: String = keys[index] if index < keys.size() else str(index + 1)
+		index += 1
+
+		var button := Button.new()
+		button.focus_mode = Control.FOCUS_NONE
+		button.custom_minimum_size = Vector2(150, 54)
+		button.add_theme_font_size_override("font_size", 11)
+		button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		button.tooltip_text = _skill_tooltip(def)
+		button.pressed.connect(_on_skill_button.bind(skill_id))
+		_skill_bar.add_child(button)
+
+		_skill_buttons[skill_id] = button
+		_skill_defs[skill_id] = def
+		_skill_base_text[skill_id] = "%s · %s" % [key, str(def.get("name", "Skill"))]
+		_skill_ids.append(skill_id)
+
+	_skill_bar.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM, Control.PRESET_MODE_MINSIZE, 18)
+
+
+func skill_ids() -> Array:
+	return _skill_ids
+
+
+func start_skill_cooldown(skill_id: String, cooldown_ms: int) -> void:
+	_skill_ready_ms[skill_id] = Time.get_ticks_msec() + cooldown_ms
+
+
+func _process(_delta: float) -> void:
+	if _skill_buttons.is_empty():
+		return
+	var now := Time.get_ticks_msec()
+	for skill_id in _skill_buttons:
+		var button: Button = _skill_buttons[skill_id]
+		var def: Dictionary = _skill_defs[skill_id]
+		var base: String = _skill_base_text[skill_id]
+		var ready_ms := int(_skill_ready_ms.get(skill_id, 0))
+		var remaining := ready_ms - now
+		var required_level := int(def.get("level_req", 1))
+
+		if remaining > 0:
+			button.disabled = true
+			button.text = "%s\n%.1fs" % [base, remaining / 1000.0]
+		elif _player_level < required_level:
+			button.disabled = true
+			button.text = "%s\nNv %d" % [base, required_level]
+		else:
+			button.disabled = false
+			button.text = "%s\n%d MP" % [base, int(def.get("mana_cost", 0))]
 
 
 func set_info(text: String) -> void:
@@ -273,6 +360,8 @@ func update_self_state(state: Dictionary) -> void:
 	var xp_next := int(state.get("xp_next", 0))
 	var level := int(state.get("level", 1))
 	var points := int(state.get("stat_points", 0))
+	_player_level = level
+	_player_mp = mp
 
 	_level_label.text = "Nivel %d" % level
 	_set_bar(_hp_bar, _hp_label, "HP", hp, hp_max)
@@ -371,3 +460,33 @@ func _on_mp_potion() -> void:
 
 func _on_stat_plus(stat_id: String) -> void:
 	alloc_stat_requested.emit(stat_id)
+
+
+func _on_skill_button(skill_id: String) -> void:
+	skill_requested.emit(skill_id)
+
+
+func _skill_tooltip(def: Dictionary) -> String:
+	var lines: Array = []
+	lines.append(str(def.get("name", "Skill")))
+	lines.append("Maná: %d · CD: %.1fs" % [
+		int(def.get("mana_cost", 0)), int(def.get("cooldown_ms", 0)) / 1000.0,
+	])
+	lines.append("Nivel requerido: %d" % int(def.get("level_req", 1)))
+	var kind := str(def.get("kind", ""))
+	match kind:
+		"single":
+			lines.append("Daño x%.1f en un objetivo" % float(def.get("multiplier", 1.0)))
+		"aoe":
+			lines.append("Daño x%.1f en área (radio %.1f m)" % [
+				float(def.get("multiplier", 1.0)), float(def.get("radius", 0.0)),
+			])
+		"heal":
+			lines.append("Cura %d%% del HP máximo" % int(def.get("heal_percent", 0)))
+		"buff":
+			lines.append("+%d%% daño por %.0fs" % [
+				int(def.get("buff_percent", 0)), int(def.get("buff_duration_ms", 0)) / 1000.0,
+			])
+		"teleport":
+			lines.append("Teletransporte hasta %.1f m" % float(def.get("teleport_distance", 0.0)))
+	return "\n".join(PackedStringArray(lines))

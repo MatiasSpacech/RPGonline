@@ -78,13 +78,13 @@ El orden no es arbitrario: cada fase construye sobre la anterior y **cada una de
 
 ## F5 — Mundo real: mapas, clases, skills (4–6 sem)
 
-- [ ] 3 mapas con geometría simple pero temática + portales con requisito de nivel.
-- [ ] Catálogo completo de mobs del GDD + 2 mini-bosses con mecánica simple.
-- [ ] Las 3 clases jugables con sus stats y 3–4 skills cada una (mana, CD, anim).
-- [ ] Primer pase de arte real: reemplazar cápsulas por modelos low-poly con anims idle/run/attack/death.
-- [ ] Spawn/guardado por mapa; `teleport` message.
+- [x] 3 mapas con geometría procedural temática: **Refugio de Piedra** (segura), **Llanuras Quebradas** y **Catacumbas de Óxido**; portales con requisito de nivel y retorno.
+- [x] Catálogo del GDD completo: 9 mobs (campo + mazmorra) y 2 bosses con mecánica: **Golem** se enfurece bajo 30% de HP; **El Carcelero** invoca 2 esqueletos al 50%.
+- [x] Las 3 clases con 3 skills cada una, maná, cooldown, auto-desbloqueo por nivel, barra Q/W/E/R y efectos visuales simples. Ajustes MVP: Grito es buff propio (party llega en F6), Curativa se auto-cura, Teletransporte salta hasta 6 m al punto elegido.
+- [ ] Primer pase de arte real (modelos low-poly animados) — **diferido**: siguen cápsulas + props procedurales hasta la fase de pulido.
+- [x] Spawns y guardado por mapa, snapshots/eventos filtrados por mapa, `teleport`, respawn en ciudad y migración 0002 para que los personajes nuevos nazcan en Refugio.
 
-**Criterio de aceptación**: un amigo entra con Mago, vos con Guerrero; cada uno progresa distinto; hay razón para ir a la mazmorra.
+**Criterio de aceptación**: ✅ verificado por tests (portales/nivel/safe zone, skills single/AoE/heal/buff/teleport, bosses, snapshots por mapa) y autotest del cliente (kit → ciudad → portal → Llanuras → combate). Falta tu prueba interactiva con Guerrero y Mago y el arte real.
 
 ## F6 — Social y "game feel" (3–4 sem)
 

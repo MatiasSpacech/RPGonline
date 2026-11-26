@@ -36,10 +36,13 @@ func testCharacter(id int64, name string, class string, x, z float64) model.Char
 
 func testMobData(spec gamedata.Mob, x, z float64) *gamedata.Data {
 	return &gamedata.Data{
-		MapID: DefaultMapID,
-		Mobs:  map[string]gamedata.Mob{spec.ID: spec},
-		Spawns: []gamedata.Spawn{
-			{Mob: spec.ID, X: x, Z: z},
+		Mobs: map[string]gamedata.Mob{spec.ID: spec},
+		Maps: map[string]gamedata.Map{
+			DefaultMapID: {
+				ID: DefaultMapID, Name: "Test", Theme: "field", LevelReq: 1,
+				PlayerSpawn: gamedata.Vec2{},
+				Spawns:      []gamedata.Spawn{{Mob: spec.ID, X: x, Z: z}},
+			},
 		},
 	}
 }
@@ -321,8 +324,7 @@ func TestAggressiveMobKillsPlayerAndRespawnsWithPenalty(t *testing.T) {
 func TestPotionAndAllocStat(t *testing.T) {
 	saves := make(chan model.CharacterState, 16)
 	data := &gamedata.Data{
-		MapID: DefaultMapID,
-		Mobs:  map[string]gamedata.Mob{},
+		Mobs: map[string]gamedata.Mob{},
 		Items: map[string]gamedata.ItemTemplate{
 			"pot_hp": {
 				ID: "pot_hp", Name: "Poción", Kind: "potion", HealKind: "hp",

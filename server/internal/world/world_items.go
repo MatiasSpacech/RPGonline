@@ -81,6 +81,7 @@ func (c ShopSell) apply(w *World) { w.shopSell(c) }
 
 type drop struct {
 	ID     int64
+	MapID  string
 	Tmpl   string
 	Rarity string
 	X, Z   float64
@@ -380,13 +381,14 @@ func (w *World) spawnLoot(m *mob) {
 		}
 		x := clamp(m.X+(w.rng.Float64()*2-1)*0.9, -MapHalfSize, MapHalfSize)
 		z := clamp(m.Z+(w.rng.Float64()*2-1)*0.9, -MapHalfSize, MapHalfSize)
-		w.spawnDrop(entry.Item, rarity, x, z)
+		w.spawnDrop(m.MapID, entry.Item, rarity, x, z)
 	}
 }
 
-func (w *World) spawnDrop(tmpl, rarity string, x, z float64) {
+func (w *World) spawnDrop(mapID, tmpl, rarity string, x, z float64) {
 	d := &drop{
 		ID:     w.newItemID(),
+		MapID:  mapID,
 		Tmpl:   tmpl,
 		Rarity: rarity,
 		X:      x,
@@ -425,7 +427,7 @@ func (w *World) pickup(c Pickup) {
 		return
 	}
 	d, ok := w.dropsByID[c.DropID]
-	if !ok {
+	if !ok || d.MapID != p.MapID {
 		w.itemError(p, "no_drop", "Ese ítem ya no está en el suelo")
 		return
 	}

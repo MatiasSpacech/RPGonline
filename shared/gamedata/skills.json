@@ -1,0 +1,51 @@
+{
+  "skills": [
+    {
+      "id": "tajo_poderoso", "name": "Tajo Poderoso", "class": "warrior",
+      "level_req": 3, "mana_cost": 8, "cooldown_ms": 6000,
+      "kind": "single", "multiplier": 2.2, "range": 2.6
+    },
+    {
+      "id": "grito_guerra", "name": "Grito de Guerra", "class": "warrior",
+      "level_req": 10, "mana_cost": 20, "cooldown_ms": 60000,
+      "kind": "buff", "buff_percent": 15, "buff_duration_ms": 30000
+    },
+    {
+      "id": "remolino", "name": "Remolino", "class": "warrior",
+      "level_req": 18, "mana_cost": 25, "cooldown_ms": 10000,
+      "kind": "aoe", "multiplier": 1.5, "range": 2.6, "radius": 2.5, "max_targets": 5
+    },
+
+    {
+      "id": "bola_fuego", "name": "Bola de Fuego", "class": "mage",
+      "level_req": 1, "mana_cost": 6, "cooldown_ms": 3000,
+      "kind": "single", "multiplier": 1.8, "range": 8.5
+    },
+    {
+      "id": "nova", "name": "Nova Arcana", "class": "mage",
+      "level_req": 8, "mana_cost": 20, "cooldown_ms": 12000,
+      "kind": "aoe", "multiplier": 1.2, "range": 8.5, "radius": 4.0, "max_targets": 6
+    },
+    {
+      "id": "teletransporte", "name": "Teletransporte", "class": "mage",
+      "level_req": 14, "mana_cost": 15, "cooldown_ms": 20000,
+      "kind": "teleport", "teleport_distance": 6.0
+    },
+
+    {
+      "id": "flecha_triple", "name": "Flecha Triple", "class": "archer",
+      "level_req": 3, "mana_cost": 8, "cooldown_ms": 8000,
+      "kind": "single", "multiplier": 0.7, "hits": 3, "range": 9.5
+    },
+    {
+      "id": "flecha_curativa", "name": "Flecha Curativa", "class": "archer",
+      "level_req": 12, "mana_cost": 15, "cooldown_ms": 15000,
+      "kind": "heal", "heal_percent": 25
+    },
+    {
+      "id": "multidisparo", "name": "Multidisparo", "class": "archer",
+      "level_req": 20, "mana_cost": 25, "cooldown_ms": 12000,
+      "kind": "aoe", "multiplier": 0.8, "range": 9.5, "radius": 6.0, "max_targets": 4
+    }
+  ]
+}

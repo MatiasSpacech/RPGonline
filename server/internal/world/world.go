@@ -28,9 +28,9 @@ const (
 	SnapshotEvery = 2
 	// PlayerSpeed es la velocidad de movimiento en metros por segundo.
 	PlayerSpeed = 6.0
-	// MapHalfSize limita el área jugable del mapa plano.
+	// MapHalfSize limita el área jugable de los mapas.
 	MapHalfSize = 19.0
-	// DefaultMapID identifica el mapa cuando no hay gamedata cargada.
+	// DefaultMapID se usa cuando no hay gamedata cargada (tests).
 	DefaultMapID = "llanuras"
 	// saveInterval es cada cuánto se persisten los personajes conectados.
 	saveInterval = 60 * time.Second
@@ -112,6 +112,7 @@ type player struct {
 	SessionID int64
 	Name      string
 	Class     string
+	MapID     string
 	Level     int
 	XP        int64 // progreso dentro del nivel actual
 	Str       int
@@ -126,6 +127,10 @@ type player struct {
 
 	Items          []model.Item
 	NextPotionTick uint64
+
+	Skills      map[string]uint64 // skill id -> tick listo
+	BuffUntil   uint64
+	BuffPercent int
 
 	X, Z             float64
 	TargetX, TargetZ float64
@@ -169,17 +174,21 @@ func (p *player) entity() protocol.Entity {
 }
 
 type mob struct {
-	ID      int64
-	Spec    gamedata.Mob
-	X, Z    float64
-	SpawnX  float64
-	SpawnZ  float64
-	HP      int
-	State   string // idle | chase | attack | dead
-	Target  int64  // SessionID del jugador objetivo
-	Rot     float64
-	NextAtk uint64
-	Respawn uint64
+	ID        int64
+	Spec      gamedata.Mob
+	MapID     string
+	X, Z      float64
+	SpawnX    float64
+	SpawnZ    float64
+	HP        int
+	State     string // idle | chase | attack | dead
+	Target    int64  // SessionID del jugador objetivo
+	Rot       float64
+	NextAtk   uint64
+	Respawn   uint64
+	Temporary bool
+	Summoned  bool
+	Enraged   bool
 }
 
 func (m *mob) entity() protocol.Entity {
@@ -201,59 +210,132 @@ func (m *mob) entity() protocol.Entity {
 
 // World es el estado del mundo y su game loop.
 type World struct {
-	log       *slog.Logger
-	players   map[int64]*player // por SessionID
-	mobs      []*mob
-	mobsByID  map[int64]*mob
-	drops     []*drop
-	dropsByID map[int64]*drop
-	items     map[string]gamedata.ItemTemplate
-	gameData  protocol.GameData
-	mapID     string
-	inbox     chan Command
-	saveCh    chan<- model.CharacterState
-	tick      uint64
-	rng       *rand.Rand
+	log          *slog.Logger
+	players      map[int64]*player // por SessionID
+	mobs         []*mob
+	mobsByID     map[int64]*mob
+	mobSpecs     map[string]gamedata.Mob
+	drops        []*drop
+	dropsByID    map[int64]*drop
+	items        map[string]gamedata.ItemTemplate
+	skills       map[string]gamedata.Skill
+	maps         map[string]gamedata.Map
+	gameData     protocol.GameData
+	defaultMapID string
+	townMapID    string
+	nextMobID    int64
+	inbox        chan Command
+	saveCh       chan<- model.CharacterState
+	tick         uint64
+	rng          *rand.Rand
 }
 
 // New crea un mundo vacío. saveCh recibe los estados a persistir (nil = sin
-// persistencia, útil en tests). data puede ser nil: el mundo corre sin mobs.
+// persistencia, útil en tests). data puede ser nil: el mundo corre sin mapas.
 func New(log *slog.Logger, saveCh chan<- model.CharacterState, data *gamedata.Data) *World {
 	w := &World{
-		log:       log,
-		players:   make(map[int64]*player),
-		mobsByID:  make(map[int64]*mob),
-		dropsByID: make(map[int64]*drop),
-		mapID:     DefaultMapID,
-		inbox:     make(chan Command, 256),
-		saveCh:    saveCh,
-		gameData:  protocol.GameData{Items: make([]gamedata.ItemTemplate, 0)},
+		log:          log,
+		players:      make(map[int64]*player),
+		mobsByID:     make(map[int64]*mob),
+		dropsByID:    make(map[int64]*drop),
+		defaultMapID: DefaultMapID,
+		townMapID:    DefaultMapID,
+		inbox:        make(chan Command, 256),
+		saveCh:       saveCh,
+		gameData: protocol.GameData{
+			Items:  make([]gamedata.ItemTemplate, 0),
+			Skills: make([]gamedata.Skill, 0),
+			Maps:   make([]gamedata.Map, 0),
+		},
 		rng: rand.New(rand.NewPCG(
 			uint64(time.Now().UnixNano()),
 			0x9E3779B97F4A7C15,
 		)),
 	}
-	if data != nil {
-		if data.MapID != "" {
-			w.mapID = data.MapID
+	if data == nil {
+		return w
+	}
+
+	w.items = data.Items
+	w.skills = data.Skills
+	w.mobSpecs = data.Mobs
+	w.maps = data.Maps
+
+	itemIDs := make([]string, 0, len(data.Items))
+	for id := range data.Items {
+		itemIDs = append(itemIDs, id)
+	}
+	slices.Sort(itemIDs)
+	for _, id := range itemIDs {
+		w.gameData.Items = append(w.gameData.Items, data.Items[id])
+	}
+
+	skillIDs := make([]string, 0, len(data.Skills))
+	for id := range data.Skills {
+		skillIDs = append(skillIDs, id)
+	}
+	slices.SortFunc(skillIDs, func(a, b string) int {
+		sa, sb := data.Skills[a], data.Skills[b]
+		if sa.Class != sb.Class {
+			if sa.Class < sb.Class {
+				return -1
+			}
+			return 1
 		}
-		w.items = data.Items
-		itemIDs := make([]string, 0, len(data.Items))
-		for id := range data.Items {
-			itemIDs = append(itemIDs, id)
+		if sa.LevelReq != sb.LevelReq {
+			return sa.LevelReq - sb.LevelReq
 		}
-		slices.Sort(itemIDs)
-		for _, id := range itemIDs {
-			w.gameData.Items = append(w.gameData.Items, data.Items[id])
+		if a < b {
+			return -1
 		}
-		for i, spawn := range data.Spawns {
+		if a > b {
+			return 1
+		}
+		return 0
+	})
+	for _, id := range skillIDs {
+		w.gameData.Skills = append(w.gameData.Skills, data.Skills[id])
+	}
+
+	mapIDs := make([]string, 0, len(data.Maps))
+	for id := range data.Maps {
+		mapIDs = append(mapIDs, id)
+	}
+	slices.Sort(mapIDs)
+	for _, id := range mapIDs {
+		w.gameData.Maps = append(w.gameData.Maps, data.Maps[id])
+	}
+	if len(mapIDs) > 0 {
+		w.defaultMapID = mapIDs[0]
+		if _, ok := data.Maps["refugio"]; ok {
+			w.defaultMapID = "refugio"
+		}
+		w.townMapID = ""
+		for _, id := range mapIDs {
+			if data.Maps[id].Safe {
+				w.townMapID = id
+				if id == "refugio" {
+					break
+				}
+			}
+		}
+		if w.townMapID == "" {
+			w.townMapID = w.defaultMapID
+		}
+	}
+
+	for _, mapID := range mapIDs {
+		m := data.Maps[mapID]
+		for _, spawn := range m.Spawns {
 			spec, ok := data.Mobs[spawn.Mob]
 			if !ok {
 				continue // ya validado al cargar gamedata
 			}
-			m := &mob{
-				ID:     mobIDBase + int64(i),
+			id := mobIDBase + int64(len(w.mobs))
+			mo := &mob{
+				ID:     id,
 				Spec:   spec,
+				MapID:  mapID,
 				X:      spawn.X,
 				Z:      spawn.Z,
 				SpawnX: spawn.X,
@@ -261,10 +343,11 @@ func New(log *slog.Logger, saveCh chan<- model.CharacterState, data *gamedata.Da
 				HP:     spec.HP,
 				State:  "idle",
 			}
-			w.mobs = append(w.mobs, m)
-			w.mobsByID[m.ID] = m
+			w.mobs = append(w.mobs, mo)
+			w.mobsByID[id] = mo
 		}
 	}
+	w.nextMobID = mobIDBase + int64(len(w.mobs)) + 1000
 	return w
 }
 
@@ -281,7 +364,7 @@ func (w *World) Run(ctx context.Context) {
 	w.log.Info("mundo iniciado",
 		"tick_rate", TickRate,
 		"snapshot_rate", TickRate/SnapshotEvery,
-		"map", w.mapID,
+		"maps", len(w.maps),
 		"mobs", len(w.mobs),
 	)
 
@@ -319,11 +402,16 @@ func (w *World) addPlayer(j Join) {
 	}
 
 	c := j.Character
+	mapID := c.MapID
+	if _, ok := w.maps[mapID]; !ok && len(w.maps) > 0 {
+		mapID = w.defaultMapID
+	}
 	p := &player{
 		ID:        c.ID,
 		SessionID: j.SessionID,
 		Name:      c.Name,
 		Class:     c.Class,
+		MapID:     mapID,
 		Level:     c.Level,
 		XP:        c.XP,
 		Str:       c.Str,
@@ -333,8 +421,9 @@ func (w *World) addPlayer(j Join) {
 		StatPts:   c.StatPoints,
 		Gold:      c.Gold,
 		Items:     append([]model.Item{}, c.Items...),
-		X:         c.X,
-		Z:         c.Z,
+		Skills:    make(map[string]uint64),
+		X:         clamp(c.X, -MapHalfSize, MapHalfSize),
+		Z:         clamp(c.Z, -MapHalfSize, MapHalfSize),
 		Anim:      "idle",
 		Out:       j.Out,
 	}
@@ -345,7 +434,7 @@ func (w *World) addPlayer(j Join) {
 
 	welcome, err := protocol.Encode("welcome", protocol.Welcome{
 		Self:         p.entity(),
-		Map:          w.mapID,
+		Map:          p.MapID,
 		TickRate:     TickRate,
 		SnapshotRate: TickRate / SnapshotEvery,
 		Character:    model.CharacterSummary{ID: c.ID, Name: c.Name, Class: c.Class, Level: c.Level},
@@ -360,7 +449,7 @@ func (w *World) addPlayer(j Join) {
 	w.sendSelfState(p)
 
 	w.log.Info("jugador entró al mundo", "id", p.ID, "name", p.Name, "session", p.SessionID,
-		"level", p.Level, "items", len(p.Items), "gold", p.Gold)
+		"map", p.MapID, "level", p.Level, "items", len(p.Items), "gold", p.Gold)
 }
 
 func (w *World) removePlayer(sessionID int64) {
@@ -392,13 +481,17 @@ func (w *World) setAttack(a Attack) {
 	if !ok || p.HP <= 0 {
 		return
 	}
+	if w.isSafe(p.MapID) {
+		w.sendError(p.Out, "safe_zone", "No podés atacar en la ciudad")
+		return
+	}
 	if a.Target == 0 {
 		p.AttackTarget = 0
 		p.Anim = "idle"
 		return
 	}
 	m, ok := w.mobsByID[a.Target]
-	if !ok || m.State == "dead" {
+	if !ok || m.State == "dead" || m.MapID != p.MapID {
 		p.AttackTarget = 0
 		p.Anim = "idle"
 		return
@@ -430,13 +523,12 @@ func (w *World) allocStat(a AllocStat) {
 
 	oldHPMax, oldMPMax := p.HPMax, p.MPMax
 	p.recalcMax()
-	// Los puntos de VIT/ENE aumentan el máximo y también la vida/maná actual.
 	p.HP = min(p.HPMax, p.HP+(p.HPMax-oldHPMax))
 	p.MP = min(p.MPMax, p.MP+(p.MPMax-oldMPMax))
 
 	p.dirty = true
 	w.sendSelfState(p)
-	w.queueSave(p) // el progreso no debe depender del próximo guardado periódico
+	w.queueSave(p)
 }
 
 func (w *World) simulate(dt float64) {
@@ -453,7 +545,7 @@ func (w *World) simulatePlayers(dt float64) {
 
 		if p.AttackTarget != 0 {
 			m := w.mobsByID[p.AttackTarget]
-			if m == nil || m.State == "dead" {
+			if m == nil || m.State == "dead" || m.MapID != p.MapID {
 				p.AttackTarget = 0
 				p.Anim = "idle"
 			} else {
@@ -463,7 +555,6 @@ func (w *World) simulatePlayers(dt float64) {
 				attackRange := w.attackRange(p) + 0.5
 
 				if dist > attackRange {
-					// Auto-approach: el servidor acerca al jugador a su objetivo.
 					p.Anim = "run"
 					if dist > 0.001 {
 						p.Rot = math.Atan2(dx, dz)
@@ -515,7 +606,6 @@ func (w *World) simulatePlayers(dt float64) {
 			p.Anim = "idle"
 		}
 
-		// Regeneración fuera de combate (5 s sin pegar ni recibir).
 		if w.tick-p.LastCombatTick >= combatCooldownTicks && w.tick%regenIntervalTicks == 0 {
 			changed := false
 			if p.HP < p.HPMax {
@@ -536,18 +626,23 @@ func (w *World) simulatePlayers(dt float64) {
 func (w *World) simulateMobs(dt float64) {
 	for _, m := range w.mobs {
 		if m.State == "dead" {
+			if m.Temporary {
+				continue
+			}
 			if w.tick >= m.Respawn {
 				m.HP = m.Spec.HP
 				m.X, m.Z = m.SpawnX, m.SpawnZ
 				m.State = "idle"
 				m.Target = 0
 				m.Rot = 0
+				m.Summoned = false
+				m.Enraged = false
 			}
 			continue
 		}
 
 		target := w.players[m.Target]
-		if target == nil || target.HP <= 0 {
+		if target == nil || target.HP <= 0 || target.MapID != m.MapID {
 			target = nil
 			m.Target = 0
 		}
@@ -560,7 +655,6 @@ func (w *World) simulateMobs(dt float64) {
 		}
 
 		if target == nil {
-			// Sin objetivo: volver al spawn (p. ej. el jugador se desconectó).
 			if math.Hypot(m.X-m.SpawnX, m.Z-m.SpawnZ) > 0.05 {
 				m.X, m.Z = m.SpawnX, m.SpawnZ
 				m.HP = m.Spec.HP
@@ -574,7 +668,6 @@ func (w *World) simulateMobs(dt float64) {
 		dz := target.Z - m.Z
 		dist := math.Hypot(dx, dz)
 
-		// Leash: si se alejó demasiado del spawn o del objetivo, resetea.
 		if math.Hypot(m.X-m.SpawnX, m.Z-m.SpawnZ) > mobLeash || dist > mobLeash*1.5 {
 			m.X, m.Z = m.SpawnX, m.SpawnZ
 			m.HP = m.Spec.HP
@@ -599,7 +692,11 @@ func (w *World) simulateMobs(dt float64) {
 			m.State = "chase"
 			m.Rot = math.Atan2(dx, dz)
 			if dist > 0.001 {
-				step := m.Spec.Speed * dt
+				speed := m.Spec.Speed
+				if m.Enraged && m.Spec.EnrageSpeedMult > 0 {
+					speed *= m.Spec.EnrageSpeedMult
+				}
+				step := speed * dt
 				if step > dist {
 					step = dist
 				}
@@ -617,7 +714,7 @@ func (w *World) nearestPlayer(m *mob) (int64, bool) {
 	}
 	var bestID int64
 	for _, p := range w.players {
-		if p.HP <= 0 {
+		if p.HP <= 0 || p.MapID != m.MapID {
 			continue
 		}
 		d := math.Hypot(p.X-m.X, p.Z-m.Z)
@@ -631,6 +728,10 @@ func (w *World) nearestPlayer(m *mob) (int64, bool) {
 
 func (w *World) playerAttack(p *player, m *mob) {
 	minD, maxD := w.damageRange(p)
+	if mult := w.damageMultiplier(p); mult > 1 {
+		minD = max(1, int(math.Round(float64(minD)*mult)))
+		maxD = max(1, int(math.Round(float64(maxD)*mult)))
+	}
 	damage := combat.RollDamage(minD, maxD, w.rng.Float64())
 	damage = combat.ApplyDefense(damage, m.Spec.Defense)
 	crit := combat.IsCrit(w.rng.Float64())
@@ -642,13 +743,13 @@ func (w *World) playerAttack(p *player, m *mob) {
 	p.LastCombatTick = w.tick
 	p.dirty = true
 
-	// Los pasivos también retalián al ser atacados.
 	if m.Target == 0 {
 		m.Target = p.SessionID
 		m.State = "chase"
 	}
 
-	w.sendDamage(p.ID, m.ID, damage, crit, "out")
+	w.sendDamage(p.MapID, p.ID, m.ID, damage, crit, "out")
+	w.checkBossMechanics(m)
 	if m.HP <= 0 {
 		w.killMob(m, p)
 	}
@@ -656,11 +757,14 @@ func (w *World) playerAttack(p *player, m *mob) {
 
 func (w *World) mobAttack(m *mob, p *player) {
 	if combat.Dodged(p.stats(), w.rng.Float64()*100.0) {
-		w.sendDamage(m.ID, p.ID, 0, false, "dodge")
+		w.sendDamage(m.MapID, m.ID, p.ID, 0, false, "dodge")
 		return
 	}
 
 	damage := combat.RollDamage(m.Spec.DamageMin, m.Spec.DamageMax, w.rng.Float64())
+	if m.Enraged && m.Spec.EnrageDmgMult > 0 {
+		damage = max(1, int(math.Round(float64(damage)*m.Spec.EnrageDmgMult)))
+	}
 	damage = combat.ApplyDefense(damage, w.totalDefense(p))
 	crit := combat.IsCrit(w.rng.Float64())
 	if crit {
@@ -669,7 +773,7 @@ func (w *World) mobAttack(m *mob, p *player) {
 
 	p.HP -= damage
 	p.LastCombatTick = w.tick
-	w.sendDamage(m.ID, p.ID, damage, crit, "in")
+	w.sendDamage(m.MapID, m.ID, p.ID, damage, crit, "in")
 
 	if p.HP <= 0 {
 		w.killPlayer(p)
@@ -718,7 +822,7 @@ func (w *World) killMob(m *mob, killer *player) {
 		}
 	}
 
-	w.broadcastEvent("mob_dead", protocol.MobDead{
+	w.broadcastEvent(m.MapID, "mob_dead", protocol.MobDead{
 		ID:     m.ID,
 		XP:     gained,
 		Gold:   gold,
@@ -729,7 +833,7 @@ func (w *World) killMob(m *mob, killer *player) {
 	w.queueSave(killer)
 
 	w.log.Info("mob eliminado",
-		"mob", m.Spec.ID, "mob_id", m.ID,
+		"mob", m.Spec.ID, "mob_id", m.ID, "map", m.MapID,
 		"killer", killer.Name, "xp", gained, "gold", gold, "level", killer.Level)
 }
 
@@ -738,7 +842,13 @@ func (w *World) killPlayer(p *player) {
 	remainingXP, lost := combat.DeathPenalty(p.XP, p.Level)
 	p.XP = remainingXP
 
-	p.X, p.Z = 0, 0
+	respawnMap := w.townMapID
+	if _, ok := w.maps[respawnMap]; !ok {
+		respawnMap = p.MapID
+	}
+	sx, sz := w.mapSpawn(respawnMap)
+	p.MapID = respawnMap
+	p.X, p.Z = sx, sz
 	p.HasTarget = false
 	p.AttackTarget = 0
 	p.Anim = "idle"
@@ -764,14 +874,14 @@ func (w *World) killPlayer(p *player) {
 		w.send(p, data)
 	}
 	if data, err := protocol.Encode("teleport", protocol.Teleport{
-		Map: w.mapID, X: p.X, Y: 0, Z: p.Z,
+		Map: p.MapID, X: p.X, Y: 0, Z: p.Z,
 	}); err == nil {
 		w.send(p, data)
 	}
 	w.sendSelfState(p)
 	w.queueSave(p)
 
-	w.log.Info("jugador murió", "name", p.Name, "xp_lost", lost, "level", p.Level)
+	w.log.Info("jugador murió", "name", p.Name, "xp_lost", lost, "level", p.Level, "map", p.MapID)
 }
 
 func (w *World) selfState(p *player) protocol.SelfState {
@@ -808,40 +918,48 @@ func (w *World) sendSelfState(p *player) {
 	w.send(p, data)
 }
 
-func (w *World) sendDamage(src, dst int64, amount int, crit bool, kind string) {
-	w.broadcastEvent("dmg", protocol.Damage{
+func (w *World) sendDamage(mapID string, src, dst int64, amount int, crit bool, kind string) {
+	w.broadcastEvent(mapID, "dmg", protocol.Damage{
 		Src: src, Dst: dst, Amount: amount, Crit: crit, Kind: kind,
 	})
 }
 
-func (w *World) broadcastEvent(mtype string, payload any) {
+func (w *World) broadcastEvent(mapID, mtype string, payload any) {
 	data, err := protocol.Encode(mtype, payload)
 	if err != nil {
 		w.log.Error("no se pudo codificar evento", "tipo", mtype, "err", err)
 		return
 	}
 	for _, p := range w.players {
-		w.send(p, data)
+		if p.MapID == mapID {
+			w.send(p, data)
+		}
 	}
 }
 
 func (w *World) broadcast() {
-	data, err := protocol.Encode("snapshot", protocol.Snapshot{
-		Tick: w.tick,
-		Ents: w.entities(),
-	})
-	if err != nil {
-		w.log.Error("no se pudo codificar el snapshot", "err", err)
-		return
-	}
+	byMap := make(map[string][]*player)
 	for _, p := range w.players {
-		w.send(p, data)
+		byMap[p.MapID] = append(byMap[p.MapID], p)
+	}
+	for mapID, players := range byMap {
+		data, err := protocol.Encode("snapshot", protocol.Snapshot{
+			Tick: w.tick,
+			Ents: w.entitiesInMap(mapID),
+		})
+		if err != nil {
+			w.log.Error("no se pudo codificar el snapshot", "err", err)
+			continue
+		}
+		for _, p := range players {
+			w.send(p, data)
+		}
 	}
 }
 
-// entities devuelve una copia ordenada de las entidades (para tests y snapshots).
+// entities devuelve todas las entidades del mundo (tests).
 func (w *World) entities() []protocol.Entity {
-	ents := make([]protocol.Entity, 0, len(w.players)+len(w.mobs))
+	ents := make([]protocol.Entity, 0, len(w.players)+len(w.mobs)+len(w.drops))
 	for _, p := range w.players {
 		ents = append(ents, p.entity())
 	}
@@ -854,6 +972,33 @@ func (w *World) entities() []protocol.Entity {
 	for _, d := range w.drops {
 		ents = append(ents, d.entity(w.items))
 	}
+	sortEntities(ents)
+	return ents
+}
+
+func (w *World) entitiesInMap(mapID string) []protocol.Entity {
+	ents := make([]protocol.Entity, 0, len(w.players)+len(w.mobs)+len(w.drops))
+	for _, p := range w.players {
+		if p.MapID == mapID {
+			ents = append(ents, p.entity())
+		}
+	}
+	for _, m := range w.mobs {
+		if m.MapID != mapID || m.State == "dead" {
+			continue
+		}
+		ents = append(ents, m.entity())
+	}
+	for _, d := range w.drops {
+		if d.MapID == mapID {
+			ents = append(ents, d.entity(w.items))
+		}
+	}
+	sortEntities(ents)
+	return ents
+}
+
+func sortEntities(ents []protocol.Entity) {
 	slices.SortFunc(ents, func(a, b protocol.Entity) int {
 		switch {
 		case a.ID < b.ID:
@@ -864,7 +1009,6 @@ func (w *World) entities() []protocol.Entity {
 			return 0
 		}
 	})
-	return ents
 }
 
 func (w *World) saveDirty() {
@@ -891,7 +1035,7 @@ func (w *World) queueSave(p *player) {
 
 	state := model.CharacterState{
 		CharacterID: p.ID,
-		MapID:       w.mapID,
+		MapID:       p.MapID,
 		X:           p.X,
 		Y:           0,
 		Z:           p.Z,
@@ -917,7 +1061,6 @@ func (w *World) send(p *player, data []byte) {
 	select {
 	case p.Out <- data:
 	default:
-		// Cliente lento o desconectándose: descartar evita bloquear el mundo.
 		w.log.Warn("buzón lleno: mensaje descartado", "player", p.Name)
 	}
 }
@@ -931,6 +1074,74 @@ func (w *World) sendError(out chan<- []byte, code, msg string) {
 	case out <- data:
 	default:
 	}
+}
+
+// damageMultiplier aplica el buff de Grito de Guerra (F5).
+func (w *World) damageMultiplier(p *player) float64 {
+	if p.BuffPercent > 0 && w.tick < p.BuffUntil {
+		return 1.0 + float64(p.BuffPercent)/100.0
+	}
+	return 1.0
+}
+
+func (w *World) checkBossMechanics(m *mob) {
+	if m.State == "dead" {
+		return
+	}
+	if m.Spec.EnrageAtPercent > 0 && !m.Enraged &&
+		m.HP <= m.Spec.HP*m.Spec.EnrageAtPercent/100 {
+		m.Enraged = true
+		w.log.Info("mob enfurecido", "mob", m.Spec.ID, "mob_id", m.ID)
+	}
+	if m.Spec.SummonAtPercent > 0 && !m.Summoned &&
+		m.HP <= m.Spec.HP*m.Spec.SummonAtPercent/100 {
+		m.Summoned = true
+		w.summonAdds(m)
+	}
+}
+
+func (w *World) summonAdds(boss *mob) {
+	spec, ok := w.mobSpecs[boss.Spec.SummonMob]
+	if !ok {
+		return
+	}
+	for i := 0; i < boss.Spec.SummonCount; i++ {
+		id := w.nextMobID
+		w.nextMobID++
+		x := clamp(boss.X+(w.rng.Float64()*2-1)*2.0, -MapHalfSize, MapHalfSize)
+		z := clamp(boss.Z+(w.rng.Float64()*2-1)*2.0, -MapHalfSize, MapHalfSize)
+		add := &mob{
+			ID:        id,
+			Spec:      spec,
+			MapID:     boss.MapID,
+			X:         x,
+			Z:         z,
+			SpawnX:    x,
+			SpawnZ:    z,
+			HP:        spec.HP,
+			State:     "chase",
+			Target:    boss.Target,
+			Temporary: true,
+		}
+		if add.Target == 0 {
+			add.State = "idle"
+		}
+		w.mobs = append(w.mobs, add)
+		w.mobsByID[id] = add
+	}
+	w.log.Info("boss invocó esbirros", "boss", boss.Spec.ID, "count", boss.Spec.SummonCount)
+}
+
+func (w *World) isSafe(mapID string) bool {
+	m, ok := w.maps[mapID]
+	return ok && m.Safe
+}
+
+func (w *World) mapSpawn(mapID string) (float64, float64) {
+	if m, ok := w.maps[mapID]; ok {
+		return m.PlayerSpawn.X, m.PlayerSpawn.Z
+	}
+	return 0, 0
 }
 
 func clamp(v, min, max float64) float64 {

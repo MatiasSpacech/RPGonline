@@ -51,8 +51,8 @@ func TestPersistenceAcrossReconnect(t *testing.T) {
 	go db.RunSaver(saveCh, store, log)
 
 	// Un mob pasivo cerca del spawn: muere de un golpe y da 60 XP (nivel 1→2).
+	// El personaje nuevo aparece en refugio, así que el mapa de test es refugio.
 	testData := &gamedata.Data{
-		MapID: "llanuras",
 		Mobs: map[string]gamedata.Mob{
 			"dummy": {
 				ID: "dummy", Name: "Dummy", Level: 1, HP: 20,
@@ -80,7 +80,13 @@ func TestPersistenceAcrossReconnect(t *testing.T) {
 				Stackable: true, MaxStack: 20, Value: 120, BuyPrice: 600,
 			},
 		},
-		Spawns: []gamedata.Spawn{{Mob: "dummy", X: 1.5, Z: 0}},
+		Maps: map[string]gamedata.Map{
+			"refugio": {
+				ID: "refugio", Name: "Refugio test", Theme: "field", Safe: false, LevelReq: 1,
+				PlayerSpawn: gamedata.Vec2{},
+				Spawns:      []gamedata.Spawn{{Mob: "dummy", X: 1.5, Z: 0}},
+			},
+		},
 	}
 
 	gameWorld := world.New(log, saveCh, testData)

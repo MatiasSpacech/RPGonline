@@ -12,6 +12,7 @@ const InventoryUIScript := preload("res://scripts/inventory_ui.gd")
 const PlayerEntityScript := preload("res://scripts/player_entity.gd")
 const MobEntityScript := preload("res://scripts/mob_entity.gd")
 const DropEntityScript := preload("res://scripts/drop_entity.gd")
+const MapViewScript := preload("res://scripts/map_view.gd")
 const PLAYER_SCENE := preload("res://scenes/player_entity.tscn")
 const MOB_SCENE := preload("res://scenes/mob_entity.tscn")
 const DROP_SCENE := preload("res://scenes/drop_entity.tscn")
@@ -24,6 +25,7 @@ const AUTOTEST_CHAR := "AutoWarrior"
 @onready var _ui: AuthUIScript = $UIOverlay
 @onready var _hud: GameHUDScript = $UI
 @onready var _inventory: InventoryUIScript = $UIInventory
+@onready var _map_view: MapViewScript = $MapView
 @onready var _camera: Camera3D = $Camera3D
 @onready var _entities_root: Node3D = $Entities
 @onready var _marker: MeshInstance3D = $MoveMarker
@@ -32,9 +34,15 @@ var _entities: Dictionary = {}
 var _mobs: Dictionary = {}
 var _drops: Dictionary = {}
 var _item_templates: Dictionary = {}
+var _skills_by_id: Dictionary = {}
+var _class_skill_ids: Array = []
 var _self_id := 0
 var _self_entity: PlayerEntityScript = null
 var _character: Dictionary = {}
+var _current_map := ""
+var _last_target_id := 0
+var _last_ground_point := Vector3.ZERO
+var _last_ground_valid := false
 var _current_tick := 0
 var _last_rtt := 0
 var _in_game := false
@@ -47,6 +55,8 @@ var _autotest_attack_sent := false
 var _autotest_items_ok := false
 var _autotest_equip_sent := false
 var _autotest_enhance_sent := false
+var _autotest_ready_combat := false
+var _autotest_portal_sent := false
 var _autotest_done := false
 
 
@@ -54,6 +64,8 @@ func _ready() -> void:
 	for arg in OS.get_cmdline_user_args():
 		if arg == "--autotest":
 			_autotest = true
+
+	_map_view.setup($Ground, $WorldEnvironment, $Sun)
 
 	_net.connected.connect(_on_net_connected)
 	_net.disconnected.connect(_on_net_disconnected)
@@ -72,6 +84,8 @@ func _ready() -> void:
 	_net.teleport_received.connect(_on_teleport)
 	_net.inventory_received.connect(_on_inventory_received)
 	_net.enhance_result_received.connect(_on_enhance_result)
+	_net.skill_cast_received.connect(_on_skill_cast)
+	_net.skill_effect_received.connect(_on_skill_effect)
 
 	_ui.login_requested.connect(_on_ui_login)
 	_ui.register_requested.connect(_on_ui_register)
@@ -82,6 +96,7 @@ func _ready() -> void:
 	_hud.potion_requested.connect(_on_hud_potion)
 	_hud.alloc_stat_requested.connect(_on_hud_alloc_stat)
 	_hud.inventory_requested.connect(_toggle_inventory)
+	_hud.skill_requested.connect(_cast_skill)
 	_hud.reset()
 
 	_inventory.equip_requested.connect(_net.equip_item)
@@ -124,6 +139,18 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_I:
 				_inventory.open()
 				return
+			KEY_Q:
+				_cast_skill_index(0)
+				return
+			KEY_W:
+				_cast_skill_index(1)
+				return
+			KEY_E:
+				_cast_skill_index(2)
+				return
+			KEY_R:
+				_cast_skill_index(3)
+				return
 			KEY_1:
 				_net.use_potion("hp")
 			KEY_2:
@@ -137,10 +164,26 @@ func _handle_click(screen_pos: Vector2) -> void:
 	var point := _ground_point(screen_pos)
 	if point == Vector3.INF:
 		return
+	_last_ground_point = point
+	_last_ground_valid = true
 
-	# Prioridad: drop en el suelo → atacar mob → caminar.
+	# Prioridad: portal → drop → mob → caminar.
+	var portal := _map_view.portal_near(point, 1.6)
+	if not portal.is_empty():
+		var portal_point := Vector3(float(portal.get("x", 0.0)), 0.0, float(portal.get("z", 0.0)))
+		if _self_entity == null or portal_point.distance_to(_self_entity.position) > 3.0:
+			_last_target_id = 0
+			_net.send_move(portal_point)
+			_show_marker(portal_point)
+		else:
+			_last_target_id = 0
+			_net.use_portal(str(portal.get("id", "")))
+			_show_marker(portal_point)
+		return
+
 	var drop_id := _drop_near(point, 1.1)
 	if drop_id != 0:
+		_last_target_id = 0
 		var drop: DropEntityScript = _drops[drop_id]
 		var drop_point := Vector3(drop.position.x, 0.0, drop.position.z)
 		if _self_entity == null or drop_point.distance_to(_self_entity.position) > 3.0:
@@ -153,10 +196,12 @@ func _handle_click(screen_pos: Vector2) -> void:
 
 	var mob_id := _mob_near(point, 1.8)
 	if mob_id != 0:
+		_last_target_id = mob_id
 		_net.attack(mob_id)
 		var mob: MobEntityScript = _mobs[mob_id]
 		_show_marker(mob.position)
 	else:
+		_last_target_id = 0
 		_net.send_move(point)
 		_show_marker(point)
 
@@ -287,6 +332,7 @@ func _on_welcome(data: Dictionary) -> void:
 	var game_data_variant: Variant = data.get("game_data", {})
 	if game_data_variant is Dictionary:
 		var game_data: Dictionary = game_data_variant
+
 		var items_variant: Variant = game_data.get("items", [])
 		if items_variant is Array:
 			var items: Array = items_variant
@@ -297,18 +343,40 @@ func _on_welcome(data: Dictionary) -> void:
 					_item_templates[str(t.get("id", ""))] = t
 			_inventory.set_game_data(items)
 
+		var maps_variant: Variant = game_data.get("maps", [])
+		if maps_variant is Array:
+			_map_view.set_maps(maps_variant)
+
 	var char_variant: Variant = data.get("character", {})
 	_character = char_variant if char_variant is Dictionary else {}
 
 	var character_name := str(_character.get("name", "?"))
 	var class_id := str(_character.get("class", ""))
-	var level := int(_character.get("level", 1))
-	_hud.set_status("%s · %s · Nv %d  ·  mapa: %s" % [
-		character_name,
-		_ui.class_label(class_id),
-		level,
-		str(data.get("map", "?")),
-	])
+	_last_target_id = 0
+
+	_skills_by_id.clear()
+	_class_skill_ids.clear()
+	var class_skills: Array = []
+	if game_data_variant is Dictionary:
+		var game_data: Dictionary = game_data_variant
+		var skills_variant: Variant = game_data.get("skills", [])
+		if skills_variant is Array:
+			for entry in skills_variant:
+				if not (entry is Dictionary):
+					continue
+				var s: Dictionary = entry
+				if str(s.get("class", "")) != class_id:
+					continue
+				var skill_id := str(s.get("id", ""))
+				_skills_by_id[skill_id] = s
+				_class_skill_ids.append(skill_id)
+				class_skills.append(s)
+	_hud.set_skills(class_skills)
+
+	_current_map = str(data.get("map", ""))
+	_last_ground_valid = false
+	_map_view.apply_map(_current_map)
+	_update_status()
 
 	var self_variant: Variant = data.get("self", {})
 	if self_variant is Dictionary:
@@ -319,7 +387,9 @@ func _on_welcome(data: Dictionary) -> void:
 			float(self_data.get("z", 0.0)),
 		])
 
-	print("[game] en el mundo como %s (id %d)" % [character_name, int(_character.get("id", 0))])
+	print("[game] en el mundo como %s (id %d) en mapa %s" % [
+		character_name, int(_character.get("id", 0)), _current_map,
+	])
 
 	if _autotest:
 		_autotest_state = 5
@@ -327,6 +397,8 @@ func _on_welcome(data: Dictionary) -> void:
 		_autotest_items_ok = false
 		_autotest_equip_sent = false
 		_autotest_enhance_sent = false
+		_autotest_ready_combat = false
+		_autotest_portal_sent = false
 
 
 func _on_snapshot(data: Dictionary) -> void:
@@ -418,13 +490,16 @@ func _on_snapshot(data: Dictionary) -> void:
 	_remove_missing(_drops, seen_drops, false)
 	_update_info()
 
-	if _autotest and _autotest_items_ok and not _autotest_attack_sent:
+	if _autotest and _autotest_items_ok and _autotest_ready_combat and not _autotest_attack_sent:
 		var target := _nearest_mob_for_autotest()
 		if target != 0:
 			_autotest_attack_sent = true
 			_autotest_state = 7
 			print("[autotest] atacando mob %d" % target)
 			_net.attack(target)
+
+	if _last_target_id != 0 and not _mobs.has(_last_target_id):
+		_last_target_id = 0
 
 
 func _remove_missing(collection: Dictionary, seen: Dictionary, is_player: bool) -> void:
@@ -470,6 +545,8 @@ func _on_self_state(data: Dictionary) -> void:
 		int(data.get("attack_max", 0)),
 		int(data.get("defense", 0))
 	)
+	_character["level"] = int(data.get("level", 1))
+	_update_status()
 
 
 func _on_inventory_received(data: Dictionary) -> void:
@@ -481,6 +558,8 @@ func _on_inventory_received(data: Dictionary) -> void:
 	print("[game] inventario: %d ítems · %d oro" % [count, int(data.get("gold", 0))])
 	if _autotest:
 		_autotest_handle_inventory(data)
+		if _autotest_items_ok:
+			_autotest_go_to_field()
 
 
 func _on_enhance_result(data: Dictionary) -> void:
@@ -497,6 +576,94 @@ func _on_enhance_result(data: Dictionary) -> void:
 		_autotest_items_ok = true
 		_autotest_state = 6
 		print("[autotest] enhance: success=%s destroyed=%s" % [success, destroyed])
+
+
+func _on_skill_cast(data: Dictionary) -> void:
+	_hud.start_skill_cooldown(
+		str(data.get("skill_id", "")),
+		int(data.get("cooldown_ms", 0))
+	)
+
+
+func _on_skill_effect(data: Dictionary) -> void:
+	var skill_id := str(data.get("skill_id", ""))
+	var kind := str(data.get("kind", ""))
+	var pos := Vector3(float(data.get("x", 0.0)), 0.6, float(data.get("z", 0.0)))
+	var radius := maxf(0.8, float(data.get("radius", 1.2)))
+	var color := Color(0.6, 0.8, 1.0)
+	match kind:
+		"aoe":
+			color = Color(1.0, 0.55, 0.2)
+		"heal":
+			color = Color(0.4, 1.0, 0.5)
+		"buff":
+			color = Color(1.0, 0.85, 0.35)
+		"teleport":
+			color = Color(0.75, 0.45, 1.0)
+		_:
+			color = Color(0.55, 0.8, 1.0)
+
+	var mesh := MeshInstance3D.new()
+	var sphere := SphereMesh.new()
+	sphere.radius = 1.0
+	sphere.height = 2.0
+	mesh.mesh = sphere
+	var mat := StandardMaterial3D.new()
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = Color(color.r, color.g, color.b, 0.45)
+	mat.emission_enabled = true
+	mat.emission = color
+	mat.emission_energy_multiplier = 2.0
+	mesh.material_override = mat
+	mesh.position = pos
+	mesh.scale = Vector3.ONE * 0.35
+	add_child(mesh)
+
+	var tween := create_tween().set_parallel(true)
+	tween.tween_property(mesh, "scale", Vector3.ONE * radius * 2.0, 0.35)
+	tween.tween_property(mesh, "transparency", 1.0, 0.35)
+	tween.chain().tween_callback(mesh.queue_free)
+
+	if kind == "buff" or kind == "heal":
+		var def: Dictionary = _skills_by_id.get(skill_id, {})
+		_hud.toast(str(def.get("name", "Skill")), color)
+
+
+func _cast_skill(skill_id: String) -> void:
+	if not _in_game or skill_id.is_empty() or _inventory.is_open():
+		return
+	var def: Dictionary = _skills_by_id.get(skill_id, {})
+	var x := 0.0
+	var z := 0.0
+	if str(def.get("kind", "")) == "teleport":
+		if _last_ground_valid:
+			x = _last_ground_point.x
+			z = _last_ground_point.z
+		else:
+			var point := _ground_point(get_viewport().get_mouse_position())
+			if point != Vector3.INF:
+				x = point.x
+				z = point.z
+	_net.use_skill(skill_id, _last_target_id, x, z)
+
+
+func _cast_skill_index(index: int) -> void:
+	if index >= 0 and index < _class_skill_ids.size():
+		_cast_skill(str(_class_skill_ids[index]))
+
+
+func _update_status() -> void:
+	if not _in_game:
+		return
+	var character_name := str(_character.get("name", "?"))
+	var class_id := str(_character.get("class", ""))
+	var level := int(_character.get("level", 1))
+	var map_name := _map_view.map_name(_current_map)
+	var safe_suffix := "  ·  Zona segura" if _map_view.is_safe(_current_map) else ""
+	_hud.set_status("%s · %s · Nv %d  ·  %s%s" % [
+		character_name, _ui.class_label(class_id), level, map_name, safe_suffix,
+	])
 
 
 func _toggle_inventory() -> void:
@@ -536,6 +703,11 @@ func _on_mob_dead(data: Dictionary) -> void:
 	if _autotest and not _autotest_done:
 		_autotest_done = true
 		print("[autotest] combate OK: +%d XP" % xp)
+		_on_skill_effect({
+			"skill_id": "", "kind": "aoe",
+			"x": 0.0, "z": 0.0, "radius": 2.0,
+		})
+		await get_tree().create_timer(0.4).timeout
 		get_tree().quit(0)
 
 
@@ -553,12 +725,24 @@ func _on_levelup(data: Dictionary) -> void:
 
 func _on_teleport(data: Dictionary) -> void:
 	var pos := Vector3(float(data.get("x", 0.0)), 0.0, float(data.get("z", 0.0)))
+	var map_id := str(data.get("map", ""))
+	if not map_id.is_empty():
+		_current_map = map_id
+		_map_view.apply_map(map_id)
+	_clear_map_entities()
 	if _self_entity != null and is_instance_valid(_self_entity):
 		_self_entity.snap_to(pos)
 	_camera.position = pos + CAMERA_OFFSET
 	_marker.visible = false
 	if _inventory.is_open():
 		_inventory.close()
+	_last_target_id = 0
+	_last_ground_valid = false
+	_update_status()
+
+	if _autotest and not _map_view.is_safe(_current_map):
+		_autotest_ready_combat = true
+		print("[autotest] en zona de combate: %s" % _current_map)
 
 
 func _on_pong(rtt_ms: int) -> void:
@@ -631,6 +815,26 @@ func clear_entities() -> void:
 	_drops.clear()
 	_self_entity = null
 	_self_id = 0
+	_last_target_id = 0
+
+
+func _clear_map_entities() -> void:
+	for id in _entities.keys():
+		var entity: PlayerEntityScript = _entities[id] as PlayerEntityScript
+		if entity == _self_entity:
+			continue
+		if entity != null:
+			entity.queue_free()
+		_entities.erase(id)
+	for mob in _mobs.values():
+		if mob != null:
+			mob.queue_free()
+	_mobs.clear()
+	for drop in _drops.values():
+		if drop != null:
+			drop.queue_free()
+	_drops.clear()
+	_last_target_id = 0
 
 
 ## --- Autotest headless ---
@@ -679,8 +883,30 @@ func _autotest_handle_inventory(data: Dictionary) -> void:
 		print("[autotest] items OK")
 
 
+func _autotest_go_to_field() -> void:
+	if _autotest_ready_combat or _autotest_portal_sent:
+		return
+	if not _map_view.is_safe(_current_map):
+		_autotest_ready_combat = true
+		print("[autotest] ya en zona de combate: %s" % _current_map)
+		return
+
+	var portal := _map_view.portal_towards("llanuras")
+	if portal.is_empty():
+		_autotest_ready_combat = true
+		print("[autotest] sin portal al campo; sigo")
+		return
+
+	_autotest_portal_sent = true
+	var target := Vector3(float(portal.get("x", 0.0)), 0.0, float(portal.get("z", 0.0)))
+	print("[autotest] caminando al portal %s" % str(portal.get("id", "")))
+	_net.send_move(target)
+	await get_tree().create_timer(2.0).timeout
+	_net.use_portal(str(portal.get("id", "")))
+
+
 func _autotest_watchdog() -> void:
-	await get_tree().create_timer(30.0).timeout
+	await get_tree().create_timer(45.0).timeout
 	if not _autotest_done:
 		print("[autotest] TIMEOUT")
 		get_tree().quit(1)
